@@ -2,6 +2,9 @@
 .sisyphus/*
 !.sisyphus/rules/
 
+# Environment files
+*.env
+
 # OS files
 .DS_Store
 Thumbs.db
