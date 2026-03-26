@@ -1,5 +1,6 @@
-# Sisyphus evidence files
-.sisyphus/evidence/
+# Sisyphus
+.sisyphus/*
+!.sisyphus/rules/
 
 # OS files
 .DS_Store
