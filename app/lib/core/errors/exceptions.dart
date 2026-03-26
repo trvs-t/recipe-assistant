@@ -76,3 +76,12 @@ class ValidationException extends RecipeException {
   @override
   String toString() => 'ValidationException: $message';
 }
+
+/// Exception thrown when a database operation fails.
+class DatabaseException extends RecipeException {
+  /// Creates a [DatabaseException] with the given message.
+  const DatabaseException({required String message}) : super(message);
+
+  @override
+  String toString() => 'DatabaseException: $message';
+}
