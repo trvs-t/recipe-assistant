@@ -1,0 +1,5 @@
+# Supabase configuration
+# TODO: Run `supabase init` for full configuration
+
+[functions]
+verify_jwt = true

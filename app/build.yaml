@@ -1,0 +1,17 @@
+targets:
+  $default:
+    builders:
+      riverpod_generator:
+        enabled: true
+      drift_dev:
+        enabled: true
+      freezed:
+        enabled: true
+        options:
+          union_key: 'type'
+          explicit_to_json: true
+      json_serializable:
+        enabled: true
+        options:
+          explicit_to_json: true
+          include_if_null: false
