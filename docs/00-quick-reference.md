@@ -172,7 +172,7 @@ class {Name}Notifier extends StateNotifier<AsyncValue<Data>> {
 SUPABASE_URL=
 SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
-OPENAI_API_KEY=
+OPENROUTER_API_KEY=
 ```
 
 ### File Locations

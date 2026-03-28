@@ -105,7 +105,7 @@ Create a `.env` file in `app/`:
 SUPABASE_URL=your_supabase_url
 SUPABASE_ANON_KEY=your_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-OPENAI_API_KEY=your_openai_key
+OPENROUTER_API_KEY=your_openrouter_key
 ```
 
 ## Development Commands

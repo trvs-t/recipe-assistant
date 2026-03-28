@@ -1,5 +1,8 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { corsHeaders } from '../_shared/types.ts'
+import { createOpenRouter } from '@openrouter/ai-sdk-provider'
+import { generateText, Output } from 'ai'
+import { z } from 'zod'
 
 interface ParseRecipeRequest {
   recipe_id: string
@@ -22,14 +25,16 @@ interface ParseRecipeResponse {
   retryable?: boolean
 }
 
-interface OpenAIResponse {
-  title?: string
-  ingredients?: string[]
-  steps?: string[]
-  servings?: number
-  prep_time_minutes?: number
-  cook_time_minutes?: number
-}
+const RecipeOutputSchema = Output.object({
+  schema: z.object({
+    title: z.string(),
+    ingredients: z.array(z.string()),
+    steps: z.array(z.string()),
+    servings: z.number().optional(),
+    prep_time_minutes: z.number().optional(),
+    cook_time_minutes: z.number().optional(),
+  }),
+})
 
 export function validateUrl(urlString: string): URL | null {
   try {
@@ -157,134 +162,48 @@ export function findRecipeInJsonLd(data: unknown): unknown | null {
 }
 
 /**
- * Sleep for specified milliseconds.
+ * Parse recipe content using OpenRouter with Vercel AI SDK.
+ * Uses google/gemma-3-4b-it:free model (fast, capable, no cost).
  */
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-/**
- * Calls OpenAI API with exponential backoff for retryable errors.
- */
-async function callOpenAI(content: string, retries = 3): Promise<OpenAIResponse> {
-  const apiKey = Deno.env.get('OPENAI_API_KEY')
+async function parseWithOpenRouter(content: string): Promise<{
+  title: string
+  ingredients: string[]
+  steps: string[]
+  servings?: number
+  prep_time_minutes?: number
+  cook_time_minutes?: number
+}> {
+  const apiKey = Deno.env.get('OPENROUTER_API_KEY')
   if (!apiKey) {
-    throw new Error('OPENAI_API_KEY not configured')
+    throw new Error('OPENROUTER_API_KEY not configured')
   }
 
-  let lastError: Error | null = null
-  let baseDelay = 1000 // 1 second
+  const openrouter = createOpenRouter({ apiKey })
 
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          max_tokens: 2048,
-          messages: [
-            {
-              role: 'system',
-              content: `You are a recipe parsing assistant. Extract structured recipe data from the provided content.
+  const { output } = await generateText({
+    model: openrouter.chat('google/gemma-3-4b-it:free'),
+    maxTokens: 2048,
+    system: `You are a recipe parsing assistant. Extract structured recipe data from the provided content.
 Return a JSON object with the following schema:
 {
   "title": "Recipe name",
-  "ingredients": ["list of ingredient strings"],
+  "ingredients": ["list of ingredient strings with quantities and units"],
   "steps": ["list of step instructions"],
   "servings": number (optional),
   "prep_time_minutes": number (optional),
   "cook_time_minutes": number (optional)
 }
 
-Only include fields that can be reasonably extracted. Ingredients should be complete strings with quantities and units. Steps should be complete instructions.`
-            },
-            {
-              role: 'user',
-              content: `Extract the recipe from this content:\n\n${content}`
-            }
-          ],
-          response_format: {
-            type: 'json_schema',
-            json_schema: {
-              name: 'recipe',
-              schema: {
-                type: 'object',
-                required: ['title', 'ingredients', 'steps'],
-                properties: {
-                  title: { type: 'string' },
-                  ingredients: { 
-                    type: 'array', 
-                    items: { type: 'string' } 
-                  },
-                  steps: { 
-                    type: 'array', 
-                    items: { type: 'string' } 
-                  },
-                  servings: { type: 'number' },
-                  prep_time_minutes: { type: 'number' },
-                  cook_time_minutes: { type: 'number' }
-                }
-              }
-            }
-          }
-        }),
-      })
+Only include fields that can be reasonably extracted. Ingredients should be complete strings with quantities and units. Steps should be complete instructions.`,
+    prompt: `Extract the recipe from this content:\n\n${content}`,
+    output: RecipeOutputSchema,
+  })
 
-      if (response.status === 429) {
-        // Rate limited - retry with exponential backoff
-        if (attempt < retries) {
-          const delay = baseDelay * Math.pow(2, attempt)
-          await sleep(delay)
-          baseDelay *= 2
-          continue
-        }
-        throw Object.assign(new Error('Rate limit exceeded'), { code: 'RATE_LIMIT' })
-      }
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(`OpenAI API error: ${response.status} - ${errorText}`)
-      }
-
-      const data = await response.json()
-      const message = data.choices?.[0]?.message?.content
-
-      if (!message) {
-        throw new Error('No content in OpenAI response')
-      }
-
-      return JSON.parse(message) as OpenAIResponse
-
-    } catch (error) {
-      lastError = error as Error
-
-      // Don't retry PARSE_FAILED or non-retryable errors
-      if (error.code === 'RATE_LIMIT') {
-        throw error
-      }
-
-      // Retry network errors
-      if (attempt < retries && (
-        error.message.includes('fetch') ||
-        error.message.includes('network') ||
-        error.message.includes('ECONNREFUSED') ||
-        error.message.includes('timeout')
-      )) {
-        const delay = baseDelay * Math.pow(2, attempt)
-        await sleep(delay)
-        baseDelay *= 2
-        continue
-      }
-
-      throw error
-    }
+  if (!output) {
+    throw new Error('Failed to parse recipe: no output from model')
   }
 
-  throw lastError || new Error('Max retries exceeded')
+  return output
 }
 
 serve(async (req): Promise<Response> => {
@@ -359,16 +278,24 @@ serve(async (req): Promise<Response> => {
       })
     }
 
-    // Call OpenAI API to parse recipe
-    let openAIResult: OpenAIResponse
+    // Call OpenRouter API to parse recipe
+    let parseResult: {
+      title: string
+      ingredients: string[]
+      steps: string[]
+      servings?: number
+      prep_time_minutes?: number
+      cook_time_minutes?: number
+    }
     try {
-      openAIResult = await callOpenAI(recipeContent)
+      parseResult = await parseWithOpenRouter(recipeContent)
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       
-      if (error.code === 'RATE_LIMIT') {
+      // Check for rate limiting (429)
+      if (errorMessage.includes('429') || errorMessage.includes('rate limit')) {
         result.code = 'RATE_LIMIT'
-        result.error = 'OpenAI rate limit exceeded'
+        result.error = 'OpenRouter rate limit exceeded'
         result.retryable = true
         return new Response(JSON.stringify(result), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -387,9 +314,9 @@ serve(async (req): Promise<Response> => {
     }
 
     // Validate response
-    if (!openAIResult.title || !openAIResult.ingredients || !openAIResult.steps) {
+    if (!parseResult.title || !parseResult.ingredients || !parseResult.steps) {
       result.code = 'PARSE_FAILED'
-      result.error = 'Incomplete recipe data from OpenAI'
+      result.error = 'Incomplete recipe data from AI parser'
       return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 500,
@@ -399,12 +326,12 @@ serve(async (req): Promise<Response> => {
     // Success
     result.success = true
     result.data = {
-      title: openAIResult.title,
-      ingredients: openAIResult.ingredients,
-      steps: openAIResult.steps,
-      servings: openAIResult.servings,
-      prep_time: openAIResult.prep_time_minutes,
-      cook_time: openAIResult.cook_time_minutes,
+      title: parseResult.title,
+      ingredients: parseResult.ingredients,
+      steps: parseResult.steps,
+      servings: parseResult.servings,
+      prep_time: parseResult.prep_time_minutes,
+      cook_time: parseResult.cook_time_minutes,
     }
 
     return new Response(JSON.stringify(result), {
