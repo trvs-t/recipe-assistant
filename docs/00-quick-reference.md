@@ -175,6 +175,34 @@ SUPABASE_SERVICE_ROLE_KEY=
 OPENROUTER_API_KEY=
 ```
 
+### flutter_dotenv Setup
+
+The `flutter_dotenv` package loads `.env` files at runtime. **Required for web.**
+
+**1. Add `.env` to `flutter.assets` in `pubspec.yaml`:**
+```yaml
+flutter:
+  assets:
+    - .env
+```
+
+**2. Load in `main.dart` before app startup:**
+```dart
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
+Future<void> main() async {
+  await dotenv.load(fileName: '.env');
+  // ... rest of initialization
+}
+```
+
+**3. Access variables:**
+```dart
+dotenv.env['SUPABASE_URL'];
+```
+
+**Common Issue (Web):** If you see `HTTP status 404` for `assets/.env`, the `.env` file is not declared in `flutter.assets`. Without this declaration, Flutter web cannot find the asset.
+
 ### File Locations
 | What | Where |
 |------|-------|
