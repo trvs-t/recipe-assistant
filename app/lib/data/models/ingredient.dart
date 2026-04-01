@@ -13,7 +13,10 @@ sealed class Ingredient with _$Ingredient {
     required String id,
 
     /// ID of the recipe this ingredient belongs to.
-    required String recipeId,
+    @JsonKey(name: 'recipe_id') required String recipeId,
+
+    /// Creation timestamp.
+    @JsonKey(name: 'created_at') DateTime? createdAt,
 
     /// Raw text from source (e.g., "2 cups flour, sifted").
     required String originalText,

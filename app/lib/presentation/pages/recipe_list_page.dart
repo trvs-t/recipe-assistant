@@ -23,6 +23,7 @@ class RecipeListPage extends ConsumerWidget {
       body: recipeListAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stack) => _ErrorState(
+          error: error.toString(),
           onRetry: () => ref.read(recipeListProvider.notifier).refreshRecipes(),
         ),
         data: (recipes) {
@@ -77,9 +78,10 @@ class _EmptyState extends StatelessWidget {
 
 /// Widget showing error state with retry button
 class _ErrorState extends StatelessWidget {
+  final String error;
   final VoidCallback onRetry;
 
-  const _ErrorState({required this.onRetry});
+  const _ErrorState({required this.error, required this.onRetry});
 
   @override
   Widget build(BuildContext context) {
@@ -104,6 +106,17 @@ class _ErrorState extends StatelessWidget {
               'Failed to load recipes',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            SelectableText(
+              error,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                fontFamily: 'monospace',
               ),
               textAlign: TextAlign.center,
             ),

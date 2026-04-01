@@ -52,10 +52,10 @@ sealed class Recipe with _$Recipe {
     required String userId,
 
     /// Creation timestamp.
-    required DateTime createdAt,
+    @JsonKey(name: 'created_at') required DateTime createdAt,
 
     /// Last update timestamp.
-    required DateTime updatedAt,
+    @JsonKey(name: 'updated_at') required DateTime updatedAt,
   }) = _Recipe;
 
   /// Creates a [Recipe] from JSON.

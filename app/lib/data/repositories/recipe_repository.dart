@@ -62,6 +62,16 @@ class RecipeRepository implements IRecipeRepository {
 
   final SupabaseClient _client;
 
+  /// Dev user ID from seed data - used when auth is not configured.
+  /// This allows development without email/password auth.
+  static const String _devUserId = '00000000-0000-0000-0000-000000000001';
+
+  /// Returns the current user ID, or the dev user ID if not authenticated.
+  /// This enables development without auth while still working with RLS.
+  String _getUserId() {
+    return _client.auth.currentUser?.id ?? _devUserId;
+  }
+
   // Retry configuration for exponential backoff
   static const int _maxRetries = 3;
   static const Duration _initialBackoff = Duration(milliseconds: 500);
@@ -72,7 +82,7 @@ class RecipeRepository implements IRecipeRepository {
       final response = await _client
           .from('recipes')
           .select()
-          .eq('user_id', _client.auth.currentUser!.id)
+          .eq('user_id', _getUserId())
           .neq('status', 'deleted') // Exclude soft-deleted recipes
           .order('created_at', ascending: false);
 
@@ -89,7 +99,7 @@ class RecipeRepository implements IRecipeRepository {
           .from('recipes')
           .select()
           .eq('id', id)
-          .eq('user_id', _client.auth.currentUser!.id)
+          .eq('user_id', _getUserId())
           .maybeSingle();
 
       if (response == null) {
@@ -104,7 +114,7 @@ class RecipeRepository implements IRecipeRepository {
 
   @override
   Future<Recipe> createRecipe(String url) async {
-    final userId = _client.auth.currentUser!.id;
+    final userId = _getUserId();
 
     // Step 1: Create pending recipe entry first
     final pendingRecipe = Recipe(
@@ -285,7 +295,7 @@ class RecipeRepository implements IRecipeRepository {
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', id)
-          .eq('user_id', _client.auth.currentUser!.id)
+          .eq('user_id', _getUserId())
           .select();
 
       // If no rows were updated, recipe doesn't exist or user lacks access

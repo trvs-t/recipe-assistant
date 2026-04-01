@@ -13,7 +13,7 @@ sealed class Step with _$Step {
     required String id,
 
     /// ID of the recipe this step belongs to.
-    required String recipeId,
+    @JsonKey(name: 'recipe_id') required String recipeId,
 
     /// Step instruction text.
     required String instruction,
@@ -23,6 +23,9 @@ sealed class Step with _$Step {
 
     /// Display order within the recipe.
     required int sortOrder,
+
+    /// Creation timestamp.
+    @JsonKey(name: 'created_at') DateTime? createdAt,
   }) = _Step;
 
   /// Creates a [Step] from JSON.
