@@ -115,23 +115,24 @@ class RecipeRepository implements IRecipeRepository {
   @override
   Future<Recipe> createRecipe(String url) async {
     final userId = _getUserId();
+    final now = DateTime.now();
 
     // Step 1: Create pending recipe entry first
-    final pendingRecipe = Recipe(
-      id: '', // Will be set by Supabase
-      title: 'Parsing...',
-      sourceUrl: url,
-      status: RecipeStatus.pending,
-      userId: userId,
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-    );
+    // Build insert map manually to avoid serializing id='' (DB auto-generates UUID)
+    final insertMap = {
+      'title': 'Parsing...',
+      'source_url': url,
+      'status': 'pending',
+      'user_id': userId,
+      'created_at': now.toIso8601String(),
+      'updated_at': now.toIso8601String(),
+    };
 
     try {
       // Insert pending recipe
       final insertResponse = await _client
           .from('recipes')
-          .insert(pendingRecipe.toJson())
+          .insert(insertMap)
           .select()
           .single();
 
