@@ -1,4 +1,4 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { serve } from '@std/http'
 import { corsHeaders } from '../_shared/types.ts'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
 import { generateText, Output } from 'ai'
@@ -182,7 +182,7 @@ async function parseWithOpenRouter(content: string): Promise<{
 
   const { output } = await generateText({
     model: openrouter.chat('google/gemma-3-4b-it:free'),
-    maxTokens: 2048,
+    maxOutputTokens: 2048,
     system: `You are a recipe parsing assistant. Extract structured recipe data from the provided content.
 Return a JSON object with the following schema:
 {
