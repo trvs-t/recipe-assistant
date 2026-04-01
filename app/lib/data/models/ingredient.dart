@@ -19,7 +19,7 @@ sealed class Ingredient with _$Ingredient {
     @JsonKey(name: 'created_at') DateTime? createdAt,
 
     /// Raw text from source (e.g., "2 cups flour, sifted").
-    required String originalText,
+    @JsonKey(name: 'original_text') required String originalText,
 
     /// Parsed quantity (e.g., 2.0).
     double? quantity,
@@ -34,7 +34,7 @@ sealed class Ingredient with _$Ingredient {
     String? notes,
 
     /// Display order within the recipe.
-    required int sortOrder,
+    @JsonKey(name: 'sort_order') required int sortOrder,
   }) = _Ingredient;
 
   /// Creates an [Ingredient] from JSON.

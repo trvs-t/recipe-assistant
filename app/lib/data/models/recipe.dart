@@ -16,19 +16,19 @@ sealed class Recipe with _$Recipe {
     required String title,
 
     /// Original source URL.
-    String? sourceUrl,
+    @JsonKey(name: 'source_url') String? sourceUrl,
 
     /// Recipe description.
     String? description,
 
     /// Prep time in minutes.
-    int? prepTimeMinutes,
+    @JsonKey(name: 'prep_time_minutes') int? prepTimeMinutes,
 
     /// Cook time in minutes.
-    int? cookTimeMinutes,
+    @JsonKey(name: 'cook_time_minutes') int? cookTimeMinutes,
 
     /// Total time in minutes.
-    int? totalTimeMinutes,
+    @JsonKey(name: 'total_time_minutes') int? totalTimeMinutes,
 
     /// Number of servings the recipe yields.
     int? servings,
@@ -37,19 +37,19 @@ sealed class Recipe with _$Recipe {
     @Default([]) List<String> images,
 
     /// Cuisine type (e.g., 'Italian', 'Mexican').
-    String? cuisineType,
+    @JsonKey(name: 'cuisine_type') String? cuisineType,
 
     /// Dietary tags (e.g., 'vegetarian', 'gluten-free').
-    @Default([]) List<String> dietaryTags,
+    @JsonKey(name: 'dietary_tags') @Default([]) List<String> dietaryTags,
 
     /// Recipe status: pending, parsed, draft, error.
     required RecipeStatus status,
 
     /// AI confidence score for parsing (0-1).
-    double? parseConfidence,
+    @JsonKey(name: 'parse_confidence') double? parseConfidence,
 
     /// User ID who owns this recipe.
-    required String userId,
+    @JsonKey(name: 'user_id') required String userId,
 
     /// Creation timestamp.
     @JsonKey(name: 'created_at') required DateTime createdAt,

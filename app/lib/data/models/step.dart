@@ -19,10 +19,10 @@ sealed class Step with _$Step {
     required String instruction,
 
     /// Optional timer duration in minutes.
-    int? timerMinutes,
+    @JsonKey(name: 'timer_duration_minutes') int? timerMinutes,
 
     /// Display order within the recipe.
-    required int sortOrder,
+    @JsonKey(name: 'sort_order') required int sortOrder,
 
     /// Creation timestamp.
     @JsonKey(name: 'created_at') DateTime? createdAt,
