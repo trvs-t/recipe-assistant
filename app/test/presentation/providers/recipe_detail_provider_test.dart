@@ -4,6 +4,7 @@ import 'package:app/core/errors/exceptions.dart';
 import 'package:app/data/models/recipe.dart';
 import 'package:app/data/repositories/i_recipe_repository.dart'
     hide RecipeNotFoundException;
+import 'package:app/presentation/providers/providers.dart';
 import 'package:app/presentation/providers/recipe_detail_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';

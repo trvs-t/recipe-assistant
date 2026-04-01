@@ -1,18 +1,9 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:app/data/models/recipe.dart';
-import 'package:app/data/repositories/i_recipe_repository.dart';
+import 'package:app/presentation/providers/providers.dart';
 
 part 'recipe_detail_provider.g.dart';
-
-/// Repository provider for recipe operations.
-///
-/// This provider abstracts the repository creation so it can be overridden in tests.
-@riverpod
-IRecipeRepository recipeRepository(Ref ref) {
-  // This will be overridden in tests with a mock
-  throw UnimplementedError('recipeRepository must be overridden');
-}
 
 /// Watches a recipe by ID for real-time updates.
 ///

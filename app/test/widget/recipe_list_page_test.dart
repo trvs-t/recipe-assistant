@@ -8,7 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:app/data/models/recipe.dart';
 import 'package:app/data/repositories/i_recipe_repository.dart';
 import 'package:app/presentation/pages/recipe_list_page.dart';
-import 'package:app/presentation/providers/recipe_list_provider.dart';
+import 'package:app/presentation/providers/providers.dart';
 
 /// Mock implementation of IRecipeRepository for testing.
 class MockRecipeRepository implements IRecipeRepository {

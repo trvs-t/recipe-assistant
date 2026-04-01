@@ -11,7 +11,7 @@ import 'package:app/data/repositories/i_recipe_repository.dart';
 import 'package:app/data/repositories/i_ingredient_repository.dart';
 import 'package:app/data/repositories/i_step_repository.dart';
 import 'package:app/presentation/pages/recipe_detail_page.dart';
-import 'package:app/presentation/providers/recipe_detail_provider.dart';
+import 'package:app/presentation/providers/providers.dart';
 import 'package:app/presentation/providers/detail_providers.dart';
 
 // Mock repositories

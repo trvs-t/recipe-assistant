@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:app/data/models/recipe.dart';
 import 'package:app/data/repositories/i_recipe_repository.dart';
+import 'package:app/presentation/providers/providers.dart';
 import 'package:app/presentation/providers/recipe_list_provider.dart';
 
 /// Mock implementation of IRecipeRepository for testing.
