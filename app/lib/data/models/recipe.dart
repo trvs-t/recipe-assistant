@@ -67,6 +67,9 @@ enum RecipeStatus {
   /// Recipe saved, waiting for validation.
   pending,
 
+  /// Recipe validated, parsing in progress.
+  parsing,
+
   /// Recipe successfully parsed and ready.
   parsed,
 

@@ -1,8 +1,0 @@
-{
-  "imports": {
-    "@openrouter/ai-sdk-provider": "npm:@openrouter/ai-sdk-provider@^2.0.0",
-    "ai": "npm:ai@^6.0.0",
-    "zod": "npm:zod@^3.0.0",
-    "@std/http": "https://deno.land/std@0.168.0/http/server.ts"
-  }
-}

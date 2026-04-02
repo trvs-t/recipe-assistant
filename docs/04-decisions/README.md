@@ -36,7 +36,9 @@ Why was this decision made?
 
 ## Records
 
-*(None yet - add decisions as they are made)*
+| ID | Title | Status |
+|----|-------|--------|
+| ADR-001 | [Consolidated Import-Recipe Endpoint](./001-consolidated-import-endpoint.md) | Accepted |
 
 ## Future Decisions to Document
 

@@ -8,7 +8,7 @@ Guide for AI agents working on the Recipe Assistant codebase.
 - **Backend:** Supabase (PostgreSQL, Auth, Storage, Edge Functions)
 - **Local DB:** Drift 2.x (SQLite) for offline-first
 - **Serverless:** Deno TypeScript Edge Functions
-- **AI:** OpenAI API for recipe parsing
+- **AI:** OpenRouter API for recipe parsing (free tier: `qwen/qwen3.6-plus-preview:free`)
 
 ## Build & Test Commands
 
@@ -33,7 +33,7 @@ cd app && flutter clean && flutter pub get
 cd app && dart run build_runner build --delete-conflicting-outputs
 ```
 
-### Supabase
+### Supabase Edge Functions
 ```bash
 # Start local Supabase (requires Docker)
 supabase start
@@ -44,14 +44,28 @@ supabase db push
 # Reset database (recreates and re-applies migrations)
 supabase db reset
 
+# Serve function locally (for testing)
+supabase functions serve import-recipe --no-verify-jwt
+
+# Deploy single function
+supabase functions deploy import-recipe
+
 # Deploy all edge functions
 supabase functions deploy
 
-# Deploy single function
-supabase functions deploy validate-url
-
 # Generate TypeScript types from local DB
 supabase gen types typescript --local > app/lib/data/models/database.types.ts
+```
+
+### Edge Function Testing
+```bash
+cd supabase/functions/import-recipe
+
+# Run unit tests (fast, no external calls)
+deno test test.ts
+
+# Run integration tests (calls OpenRouter API, ~2min)
+deno test --allow-net --allow-env --allow-read integration_test.ts
 ```
 
 ## Code Style
@@ -167,9 +181,11 @@ app/
 
 supabase/
 ├── functions/                      # Edge Functions (Deno)
-│   ├── validate-url/
-│   ├── parse-recipe/
-│   └── _shared/                   # Shared types
+│   ├── import-recipe/             # Consolidated import endpoint
+│   │   ├── index.ts               # Main handler
+│   │   ├── test.ts                # Unit tests
+│   │   └── integration_test.ts     # OpenRouter integration tests
+│   └── _shared/                    # Shared types
 ├── migrations/                     # SQL migrations
 └── config.toml
 ```
@@ -181,6 +197,7 @@ supabase/
 3. **Status Field:** Recipes have status: `pending` → `parsing` → `parsed` | `error` | `draft`
 4. **Scaling Formula:** `new = original × (desired / original_servings)`
 5. **Code Generation:** Use `riverpod_annotation` + `riverpod_generator` (NOT legacy providers)
+6. **Import Recipe Flow:** Single endpoint `import-recipe` handles validation, detection, and parsing
 
 ## Error Handling
 
@@ -225,6 +242,8 @@ try {
 | Add Riverpod provider | `lib/presentation/providers/providers.dart` |
 | Update API types | `lib/data/models/database.types.ts` |
 | Run code generation | `dart run build_runner build --delete-conflicting-outputs` |
+| Test Edge Function | `supabase/functions/import-recipe/` |
+| Update AI model | `supabase/functions/import-recipe/index.ts` (model variable) |
 
 ## CRITICAL RULES
 

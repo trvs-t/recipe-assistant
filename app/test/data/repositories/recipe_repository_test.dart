@@ -344,11 +344,11 @@ void main() {
       final json = {
         'id': 'test-id',
         'title': 'Test Recipe',
-        'sourceUrl': 'https://example.com/recipe',
+        'source_url': 'https://example.com/recipe',
         'status': 'pending',
-        'userId': 'user-1',
-        'createdAt': DateTime.now().toIso8601String(),
-        'updatedAt': DateTime.now().toIso8601String(),
+        'user_id': 'user-1',
+        'created_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
       };
 
       final recipe = Recipe.fromJson(json);
@@ -356,6 +356,24 @@ void main() {
       expect(recipe.id, equals('test-id'));
       expect(recipe.title, equals('Test Recipe'));
       expect(recipe.status, equals(RecipeStatus.pending));
+    });
+
+    test('RecipeStatus parsing is a valid enum value', () {
+      expect(RecipeStatus.values, contains(RecipeStatus.parsing));
+      expect(RecipeStatus.parsing.toString(), equals('RecipeStatus.parsing'));
+    });
+
+    test('Recipe can have parsing status', () {
+      final recipe = Recipe(
+        id: 'test-id',
+        title: 'Parsing...',
+        status: RecipeStatus.parsing,
+        userId: 'user-1',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+
+      expect(recipe.status, equals(RecipeStatus.parsing));
     });
   });
 }

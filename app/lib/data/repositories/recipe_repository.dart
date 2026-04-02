@@ -72,10 +72,6 @@ class RecipeRepository implements IRecipeRepository {
     return _client.auth.currentUser?.id ?? _devUserId;
   }
 
-  // Retry configuration for exponential backoff
-  static const int _maxRetries = 3;
-  static const Duration _initialBackoff = Duration(milliseconds: 500);
-
   @override
   Future<List<Recipe>> getRecipes() async {
     try {
@@ -114,112 +110,70 @@ class RecipeRepository implements IRecipeRepository {
 
   @override
   Future<Recipe> createRecipe(String url) async {
-    final userId = _getUserId();
-    final now = DateTime.now();
-
-    // Step 1: Create pending recipe entry first
-    // Build insert map manually to avoid serializing id='' (DB auto-generates UUID)
-    final insertMap = {
-      'title': 'Parsing...',
-      'source_url': url,
-      'status': 'pending',
-      'user_id': userId,
-      'created_at': now.toIso8601String(),
-      'updated_at': now.toIso8601String(),
-    };
-
     try {
-      // Insert pending recipe
-      final insertResponse = await _client
-          .from('recipes')
-          .insert(insertMap)
-          .select()
-          .single();
-
-      final createdRecipe = Recipe.fromJson(insertResponse);
-      final recipeId = createdRecipe.id;
-
-      // Step 2: Call validate-url Edge Function
-      final validation = await _retryableOperation(() => _callValidateUrl(url));
-
-      if (!validation.valid) {
-        // Update recipe status to draft if validation fails
-        await _client
-            .from('recipes')
-            .update({
-              'status': 'draft',
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('id', recipeId);
-
-        final reason = validation.reason ?? 'Unknown validation failure';
-        throw ValidationException(message: 'URL validation failed: $reason');
-      }
-
-      // Step 3: Call parse-recipe Edge Function
-      final parseResult = await _retryableOperation(
-        () => _callParseRecipe(recipeId, url),
+      // Call import-recipe Edge Function
+      final response = await _client.functions.invoke(
+        'import-recipe',
+        body: {'url': url},
       );
 
-      if (!parseResult.success) {
-        // Update recipe status to error if parsing fails
-        await _client
-            .from('recipes')
-            .update({
-              'status': 'error',
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('id', recipeId);
-
-        final error = parseResult.error ?? 'Unknown parse failure';
-        throw ParseException(message: error, errorCode: ErrorCode.parseFailed);
+      // Handle 400 Bad Request (validation error)
+      if (response.status == 400) {
+        final error = response.data['error'] as String? ?? 'Invalid URL';
+        if (error == 'PAYWALL') {
+          throw const ValidationException(
+            message: 'This recipe is behind a paywall',
+          );
+        }
+        throw ValidationException(message: 'Invalid URL: $error');
       }
 
-      // Step 4: Parse succeeded, update recipe with parsed data
-      final data = parseResult.data;
-      if (data == null) {
+      // Handle 500 Server Error
+      if (response.status == 500) {
+        throw const NetworkException(
+          message: 'Server error during recipe import',
+          retryable: true,
+        );
+      }
+
+      // Handle unexpected status codes
+      if (response.status != 202) {
+        throw NetworkException(
+          message: 'Unexpected response status: ${response.status}',
+          retryable: true,
+        );
+      }
+
+      // Extract recipe_id from 202 response
+      final data = response.data as Map<String, dynamic>;
+      final recipeId = data['recipe_id'] as String?;
+
+      if (recipeId == null || recipeId.isEmpty) {
         throw const ParseException(
-          message: 'Parse succeeded but no data returned',
+          message: 'Invalid response: missing recipe_id',
           errorCode: ErrorCode.parseFailed,
         );
       }
 
-      final updatedRecipe = createdRecipe.copyWith(
-        title: data.title,
-        description: 'Imported from $url',
-        servings: data.servings,
-        prepTimeMinutes: data.prepTime,
-        cookTimeMinutes: data.cookTime,
-        totalTimeMinutes: (data.prepTime ?? 0) + (data.cookTime ?? 0),
-        status: RecipeStatus.parsed,
-        updatedAt: DateTime.now(),
+      // Subscribe to recipe changes via watchRecipe
+      final recipeStream = watchRecipe(recipeId);
+
+      // Wait for processing to complete (status != pending && != parsing)
+      final recipe = await recipeStream.firstWhere(
+        (recipe) =>
+            recipe.status != RecipeStatus.pending &&
+            recipe.status != RecipeStatus.parsing,
       );
 
-      await _client
-          .from('recipes')
-          .update(updatedRecipe.toJson())
-          .eq('id', recipeId);
-
-      // Step 5: Insert ingredients
-      for (var i = 0; i < data.ingredients.length; i++) {
-        await _client.from('ingredients').insert({
-          'recipe_id': recipeId,
-          'original_text': data.ingredients[i],
-          'name': data.ingredients[i], // Will be parsed separately if needed
-          'sort_order': i,
-        });
+      // Check for error status
+      if (recipe.status == RecipeStatus.error) {
+        throw const ParseException(
+          message: 'Failed to parse recipe',
+          errorCode: ErrorCode.parseFailed,
+        );
       }
 
-      // Step 6: Insert steps
-      for (var i = 0; i < data.steps.length; i++) {
-        await _client.from('steps').insert({
-          'recipe_id': recipeId,
-          'instruction': data.steps[i],
-          'sort_order': i,
-        });
-      }
-
-      return updatedRecipe;
+      return recipe;
     } on PostgrestException catch (e) {
       throw _mapPostgrestException(e);
     }
@@ -306,114 +260,6 @@ class RecipeRepository implements IRecipeRepository {
     } on PostgrestException catch (e) {
       throw _mapPostgrestException(e);
     }
-  }
-
-  /// Calls the validate-url Edge Function.
-  Future<ValidateUrlResponse> _callValidateUrl(String url) async {
-    final response = await _client.functions.invoke(
-      'validate-url',
-      body: {'url': url},
-    );
-
-    if (response.data == null) {
-      return const ValidateUrlResponse(
-        valid: false,
-        reason: 'No response from validation',
-        retryable: true,
-      );
-    }
-
-    final data = response.data as Map<String, dynamic>;
-    return ValidateUrlResponse(
-      valid: data['valid'] as bool? ?? false,
-      reason: data['reason'] as String?,
-      retryable: data['retryable'] as bool?,
-    );
-  }
-
-  /// Calls the parse-recipe Edge Function.
-  Future<ParseRecipeResponse> _callParseRecipe(
-    String recipeId,
-    String url,
-  ) async {
-    final response = await _client.functions.invoke(
-      'parse-recipe',
-      body: {'recipe_id': recipeId, 'url': url},
-    );
-
-    if (response.data == null) {
-      return const ParseRecipeResponse(
-        success: false,
-        error: 'No response from parser',
-        code: 'PARSE_FAILED',
-        retryable: true,
-      );
-    }
-
-    final data = response.data as Map<String, dynamic>;
-    final success = data['success'] as bool? ?? false;
-
-    if (!success) {
-      return ParseRecipeResponse(
-        success: false,
-        error: data['error'] as String?,
-        code: data['code'] as String?,
-        retryable: data['retryable'] as bool?,
-      );
-    }
-
-    // Parse successful response
-    final recipeData = data['data'] as Map<String, dynamic>?;
-    if (recipeData == null) {
-      return const ParseRecipeResponse(
-        success: false,
-        error: 'No data in successful response',
-        code: 'PARSE_FAILED',
-        retryable: false,
-      );
-    }
-
-    return ParseRecipeResponse(
-      success: true,
-      data: ParseRecipeData(
-        title: recipeData['title'] as String,
-        ingredients: (recipeData['ingredients'] as List).cast<String>(),
-        steps: (recipeData['steps'] as List).cast<String>(),
-        servings: recipeData['servings'] as int?,
-        prepTime: recipeData['prep_time'] as int?,
-        cookTime: recipeData['cook_time'] as int?,
-      ),
-    );
-  }
-
-  /// Executes an operation with exponential backoff for retryable network errors.
-  Future<T> _retryableOperation<T>(Future<T> Function() operation) async {
-    RecipeException? lastException;
-
-    for (var attempt = 0; attempt <= _maxRetries; attempt++) {
-      try {
-        return await operation();
-      } on NetworkException catch (e) {
-        lastException = e;
-
-        if (!e.retryable || attempt >= _maxRetries) {
-          rethrow;
-        }
-
-        // Exponential backoff: 500ms, 1000ms, 2000ms, etc.
-        final delay = _initialBackoff * (1 << attempt);
-        await Future.delayed(delay);
-      } catch (e) {
-        // Non-retryable error, rethrow immediately
-        rethrow;
-      }
-    }
-
-    throw lastException ??
-        const NetworkException(
-          message: 'Operation failed after retries',
-          retryable: true,
-        );
   }
 
   /// Maps [PostgrestException] to appropriate [RecipeException] types.

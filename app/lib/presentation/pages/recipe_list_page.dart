@@ -249,6 +249,10 @@ class _StatusBadge extends StatelessWidget {
         Theme.of(context).colorScheme.secondary,
         'Pending',
       ),
+      RecipeStatus.parsing => (
+        Theme.of(context).colorScheme.tertiary,
+        'Parsing',
+      ),
       RecipeStatus.draft => (Theme.of(context).colorScheme.outline, 'Draft'),
     };
 

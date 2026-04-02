@@ -369,14 +369,18 @@ function decimalToFraction(decimal: number): string {
 | **Anthropic** | Claude 3 | Similar to GPT-4 | Via prompting |
 | **Local** | Llama 2/3 | Free (hardware) | Via prompting |
 
-**Recommendation**: OpenAI GPT-3.5-turbo:
-- Cost-effective for recipe extraction
-- JSON mode for structured output
-- Good accuracy for this use case
-- GPT-4 fallback for complex cases
+**Recommendation**: OpenRouter API (unified access to multiple models):
+- **Primary Model:** `qwen/qwen3.6-plus-preview:free` - works out of box, no dashboard config needed
+- **Alternative:** `google/gemma-3-4b-it:free` - requires "Developer instruction" setting
+- **Benefits:** Single API key, fallback to different models, free tier available
 
-**Cost Projection:**
-- 100 recipes/month × 3K tokens × $0.0015 = $0.45/month
+**Why OpenRouter over direct OpenAI:**
+- Free models available (no API cost)
+- Model flexibility/fallback options
+- Unified API interface
+
+**Cost Projection (with free tier):**
+- 100 recipes/month × ~2K tokens × $0 = $0/month
 - Very reasonable for personal use
 
 ---

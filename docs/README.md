@@ -44,7 +44,7 @@ docs/
 │   └── 05-api-contracts.md            # APIs (~200 lines)
 ├── 03-research-findings.md            # Research (unified, ~650 lines)
 ├── 04-decisions/                      # ADRs
-│   └── (empty - for future decisions)
+│   └── 001-consolidated-import-endpoint.md
 └── README.md                          # This file
 ```
 
@@ -73,12 +73,14 @@ When implementing a feature:
 - **Flutter**: Cross-platform mobile + web
 - **Supabase**: PostgreSQL + Auth + Storage + Edge Functions
 - **Offline-first**: Local SQLite cache, background sync
-- **AI parsing**: OpenAI for unstructured content extraction
+- **AI parsing**: OpenRouter (free tier: `qwen/qwen3.6-plus-preview:free`)
 
 ## Project Status
 
-- Phase: Research & Requirements Complete
-- Next: Technical Scaffolding
+- Phase: Core implementation complete
+- Edge Functions: `import-recipe` consolidated endpoint (E2E tested)
+- AI Integration: Working with OpenRouter free models
+- Next: Flutter client integration testing
 
 ## Quick Links
 
@@ -89,4 +91,4 @@ When implementing a feature:
 
 ---
 
-*Last Updated: March 2026*
+*Last Updated: April 2026*
