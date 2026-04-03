@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:app/data/models/manual_recipe_input.dart';
 import 'package:app/data/models/recipe.dart';
 import 'package:app/data/models/ingredient.dart';
 import 'package:app/data/models/step.dart' as model_step;
@@ -64,6 +65,21 @@ class MockRecipeRepository implements IRecipeRepository {
   @override
   Future<Recipe> createRecipeFromText(String text) async {
     throw UnimplementedError();
+  }
+
+  @override
+  Future<Recipe> createManualRecipe(ManualRecipeInput input) async {
+    // Mock implementation - create a test recipe
+    final recipe = Recipe(
+      id: 'test-manual-recipe-${_recipes.length + 1}',
+      title: input.title,
+      status: RecipeStatus.draft,
+      userId: 'test-user',
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    _recipes[recipe.id] = recipe;
+    return recipe;
   }
 
   void dispose() {

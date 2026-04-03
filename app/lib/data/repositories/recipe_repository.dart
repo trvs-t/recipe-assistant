@@ -1,9 +1,13 @@
 import 'dart:async';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 import 'package:app/core/errors/exceptions.dart';
+import 'package:app/data/models/ingredient.dart';
+import 'package:app/data/models/manual_recipe_input.dart';
 import 'package:app/data/models/recipe.dart';
+import 'package:app/data/models/step.dart';
 import 'package:app/data/repositories/i_recipe_repository.dart'
     hide RecipeNotFoundException;
 
@@ -319,6 +323,90 @@ class RecipeRepository implements IRecipeRepository {
           message: 'Failed to parse recipe from text',
           errorCode: ErrorCode.parseFailed,
         );
+      }
+
+      return recipe;
+    } on PostgrestException catch (e) {
+      throw _mapPostgrestException(e);
+    }
+  }
+
+  @override
+  Future<Recipe> createManualRecipe(ManualRecipeInput input) async {
+    const uuid = Uuid();
+    final now = DateTime.now();
+    final recipeId = uuid.v4();
+
+    // Build originalText for each ingredient: "{quantity} {unit} {name}, {notes}"
+    final ingredients = input.ingredients.asMap().entries.map((entry) {
+      final index = entry.key;
+      final ingredientInput = entry.value;
+
+      final parts = <String>[];
+      if (ingredientInput.quantity != null) {
+        parts.add(ingredientInput.quantity.toString());
+      }
+      if (ingredientInput.unit != null && ingredientInput.unit!.isNotEmpty) {
+        parts.add(ingredientInput.unit!);
+      }
+      parts.add(ingredientInput.name);
+      if (ingredientInput.notes != null && ingredientInput.notes!.isNotEmpty) {
+        parts.add(', ${ingredientInput.notes}');
+      }
+
+      final originalText = parts.join(' ');
+
+      return Ingredient(
+        id: uuid.v4(),
+        recipeId: recipeId,
+        createdAt: now,
+        originalText: originalText,
+        quantity: ingredientInput.quantity,
+        unit: ingredientInput.unit,
+        name: ingredientInput.name,
+        notes: ingredientInput.notes,
+        sortOrder: index,
+      );
+    }).toList();
+
+    // Build steps with sequential sortOrder
+    final steps = input.instructions.asMap().entries.map((entry) {
+      final index = entry.key;
+      return Step(
+        id: uuid.v4(),
+        recipeId: recipeId,
+        instruction: entry.value,
+        sortOrder: index,
+        createdAt: now,
+      );
+    }).toList();
+
+    // Create the recipe with status 'draft'
+    final recipe = Recipe(
+      id: recipeId,
+      title: input.title,
+      status: RecipeStatus.draft,
+      userId: _getUserId(),
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    try {
+      // Insert recipe
+      await _client.from('recipes').insert(recipe.toJson());
+
+      // Insert ingredients
+      if (ingredients.isNotEmpty) {
+        await _client
+            .from('ingredients')
+            .insert(ingredients.map((i) => i.toJson()).toList());
+      }
+
+      // Insert steps
+      if (steps.isNotEmpty) {
+        await _client
+            .from('steps')
+            .insert(steps.map((s) => s.toJson()).toList());
       }
 
       return recipe;

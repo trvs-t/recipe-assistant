@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:app/core/errors/exceptions.dart';
+import 'package:app/data/models/manual_recipe_input.dart';
 import 'package:app/data/models/recipe.dart';
 import 'package:app/data/repositories/i_recipe_repository.dart'
     hide RecipeNotFoundException;
@@ -65,6 +66,21 @@ class MockRecipeRepository implements IRecipeRepository {
       id: 'test-recipe-text-${_recipes.length + 1}',
       title: 'Test Recipe from Text',
       status: RecipeStatus.parsed,
+      userId: 'test-user',
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    _recipes.add(recipe);
+    return recipe;
+  }
+
+  @override
+  Future<Recipe> createManualRecipe(ManualRecipeInput input) async {
+    // Mock implementation - create a test recipe
+    final recipe = Recipe(
+      id: 'test-manual-recipe-${_recipes.length + 1}',
+      title: input.title,
+      status: RecipeStatus.draft,
       userId: 'test-user',
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),

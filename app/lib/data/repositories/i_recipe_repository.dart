@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:app/data/models/manual_recipe_input.dart';
 import 'package:app/data/models/recipe.dart';
 
 /// Repository interface for recipe operations.
@@ -23,6 +24,11 @@ abstract class IRecipeRepository {
   /// Initiates async parsing workflow and returns the created recipe
   /// with status set to 'pending'.
   Future<Recipe> createRecipeFromText(String text);
+
+  /// Create a new recipe from manual input.
+  /// Used when user creates a recipe from scratch with ingredients and steps.
+  /// Returns the created recipe with status set to 'draft'.
+  Future<Recipe> createManualRecipe(ManualRecipeInput input);
 
   /// Watch a recipe for real-time updates.
   /// Emits updates when recipe data changes (e.g., parsing completes).
