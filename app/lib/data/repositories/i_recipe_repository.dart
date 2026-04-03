@@ -18,6 +18,12 @@ abstract class IRecipeRepository {
   /// with status set to 'pending'.
   Future<Recipe> createRecipe(String url);
 
+  /// Create a new recipe from plain text input.
+  /// Use this when the user pastes recipe content directly instead of a URL.
+  /// Initiates async parsing workflow and returns the created recipe
+  /// with status set to 'pending'.
+  Future<Recipe> createRecipeFromText(String text);
+
   /// Watch a recipe for real-time updates.
   /// Emits updates when recipe data changes (e.g., parsing completes).
   Stream<Recipe> watchRecipe(String id);

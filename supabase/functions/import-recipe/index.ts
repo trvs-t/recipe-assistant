@@ -10,6 +10,49 @@ const FREE_TIER_TIMEOUT_MS = 20000
 const MAX_RETRIES = 2
 const RETRY_DELAYS_MS = [1000, 2000]
 
+const MIN_TEXT_LENGTH = 50
+const MAX_TEXT_LENGTH = 10000
+
+interface TextValidationResult {
+  valid: boolean
+  reason?: string
+}
+
+function stripHtmlTags(text: string): string {
+  return text
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isUrlPattern(text: string): boolean {
+  return /^https?:\/\//i.test(text.trim())
+}
+
+function validateTextInput(text: string): TextValidationResult {
+  if (typeof text !== 'string') {
+    return { valid: false, reason: 'text_not_string' }
+  }
+
+  if (isUrlPattern(text)) {
+    return { valid: false, reason: 'url_detected_use_url_import' }
+  }
+
+  const strippedText = stripHtmlTags(text)
+
+  if (strippedText.length < MIN_TEXT_LENGTH) {
+    return { valid: false, reason: 'text_too_short' }
+  }
+
+  if (strippedText.length > MAX_TEXT_LENGTH) {
+    return { valid: false, reason: 'text_too_long' }
+  }
+
+  return { valid: true }
+}
+
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
   retries: number = MAX_RETRIES,
@@ -51,13 +94,16 @@ const corsHeaders = {
 }
 
 interface ImportRecipeRequest {
-  url: string
+  url?: string
+  text?: string
+  source?: 'url' | 'text'
 }
 
 interface ImportRecipeResponse {
   recipe_id?: string
   status?: 'pending' | 'parsing' | 'parsed' | 'draft' | 'error'
   error?: string
+  validation_error?: string
 }
 
 function getSupabaseClient() {
@@ -480,8 +526,9 @@ async function validateUrl(url: string): Promise<{ valid: boolean; reason?: stri
   }
 }
 
-async function processRecipeAsync(recipeId: string, url: string): Promise<void> {
-  console.log(`[BACKGROUND] Starting processRecipeAsync for recipe ${recipeId} from ${url}`)
+async function processRecipeAsync(recipeId: string, url: string, sourceText?: string): Promise<void> {
+  const sourceInfo = sourceText ? 'text input' : url
+  console.log(`[BACKGROUND] Starting processRecipeAsync for recipe ${recipeId} from ${sourceInfo}`)
   
   addEventListener('unhandledrejection', (ev) => {
     console.error('[BACKGROUND] Unhandled rejection:', ev.reason)
@@ -503,22 +550,29 @@ async function processRecipeAsync(recipeId: string, url: string): Promise<void> 
 
     console.log(`[BACKGROUND] Step 1b: Status updated to 'parsing' successfully`)
 
-    console.log(`[BACKGROUND] Step 2: Fetching URL ${url}`)
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; RecipeAssistant/1.0; +https://example.com/bot)',
-        'Accept': 'text/html,application/xhtml+xml',
-      },
-      signal: AbortSignal.timeout(15000),
-    })
+    let content: string
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch URL: ${response.status} ${response.statusText}`)
+    if (sourceText) {
+      console.log(`[BACKGROUND] Step 2: Using provided text input (length: ${sourceText.length})`)
+      content = stripHtmlTags(sourceText)
+    } else {
+      console.log(`[BACKGROUND] Step 2: Fetching URL ${url}`)
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; RecipeAssistant/1.0; +https://example.com/bot)',
+          'Accept': 'text/html,application/xhtml+xml',
+        },
+        signal: AbortSignal.timeout(15000),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch URL: ${response.status} ${response.statusText}`)
+      }
+
+      console.log(`[BACKGROUND] Step 3: Extracting recipe content`)
+      const html = await response.text()
+      content = extractRecipeContent(html)
     }
-
-    console.log(`[BACKGROUND] Step 3: Extracting recipe content`)
-    const html = await response.text()
-    const content = extractRecipeContent(html)
 
     if (!content || content.length < 100) {
       throw new Error('Could not extract recipe content from page')
@@ -546,13 +600,14 @@ async function processRecipeAsync(recipeId: string, url: string): Promise<void> 
       })
     }
 
+    const description = sourceText ? 'Imported from text' : `Imported from ${url}`
     console.log(`[BACKGROUND] Step 7: Updating recipe to 'parsed' status with title: ${parsed.title}`)
     await supabase
       .from('recipes')
       .update({
         status: 'parsed',
         title: parsed.title,
-        description: `Imported from ${url}`,
+        description: description,
         servings: parsed.servings,
         prep_time_minutes: parsed.prep_time_minutes,
         cook_time_minutes: parsed.cook_time_minutes,
@@ -628,6 +683,45 @@ async function importRecipe(url: string, userId: string): Promise<{ status: numb
   }
 }
 
+async function importRecipeFromText(text: string, userId: string): Promise<{ status: number; response: ImportRecipeResponse }> {
+  const supabase = getSupabaseClient()
+  
+  const { data: recipe, error } = await supabase
+    .from('recipes')
+    .insert({
+      user_id: userId,
+      source_text: text,
+      status: 'pending',
+      title: '',
+    })
+    .select()
+    .single()
+
+  if (error) {
+    console.error('Failed to create recipe from text:', error)
+    return {
+      status: 500,
+      response: {
+        error: 'Failed to create recipe record',
+      },
+    }
+  }
+
+  if (typeof EdgeRuntime !== 'undefined') {
+    EdgeRuntime.waitUntil(processRecipeAsync(recipe.id, '', text))
+  } else {
+    await processRecipeAsync(recipe.id, '', text)
+  }
+
+  return {
+    status: 202,
+    response: {
+      recipe_id: recipe.id,
+      status: 'pending',
+    },
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -646,6 +740,78 @@ serve(async (req) => {
   try {
     const body: ImportRecipeRequest = await req.json()
 
+    // Check for mutual exclusivity of url and text
+    if (body.url && body.text) {
+      const response: ImportRecipeResponse = {
+        error: 'Cannot provide both url and text. Use only one.',
+        validation_error: 'url_and_text_mutually_exclusive',
+      }
+      return new Response(
+        JSON.stringify(response),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Handle text import mode
+    if (body.source === 'text' || body.text !== undefined) {
+      if (!body.text || typeof body.text !== 'string') {
+        const response: ImportRecipeResponse = {
+          error: 'Text content is required',
+          validation_error: 'text_required',
+        }
+        return new Response(
+          JSON.stringify(response),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+
+      const validation = validateTextInput(body.text)
+      if (!validation.valid) {
+        const response: ImportRecipeResponse = {
+          error: `Invalid text input: ${validation.reason}`,
+          validation_error: validation.reason,
+        }
+        return new Response(
+          JSON.stringify(response),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+
+      const authHeader = req.headers.get('authorization')
+      if (!authHeader) {
+        const response: ImportRecipeResponse = {
+          error: 'Authorization required',
+        }
+        return new Response(
+          JSON.stringify(response),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+
+      let userId = '00000000-0000-0000-0000-000000000001'
+      
+      const token = authHeader.replace('Bearer ', '')
+      if (token && token !== 'test-token') {
+        try {
+          const parts = token.split('.')
+          if (parts.length === 3) {
+            const payload = JSON.parse(atob(parts[1]))
+            userId = payload.sub || userId
+          }
+        } catch {
+          // Use default user ID
+        }
+      }
+
+      const result = await importRecipeFromText(body.text, userId)
+
+      return new Response(
+        JSON.stringify(result.response),
+        { status: result.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Handle URL import mode (default)
     if (!body.url || typeof body.url !== 'string') {
       const response: ImportRecipeResponse = {
         error: 'URL is required',

@@ -17,11 +17,15 @@ class AddRecipePage extends ConsumerStatefulWidget {
 class _AddRecipePageState extends ConsumerState<AddRecipePage> {
   final _urlController = TextEditingController();
   final _urlFocusNode = FocusNode();
+  final _textController = TextEditingController();
+  final _textFocusNode = FocusNode();
 
   @override
   void dispose() {
     _urlController.dispose();
     _urlFocusNode.dispose();
+    _textController.dispose();
+    _textFocusNode.dispose();
     super.dispose();
   }
 
@@ -29,14 +33,24 @@ class _AddRecipePageState extends ConsumerState<AddRecipePage> {
     ref.read(addRecipeProvider.notifier).setUrl(value);
   }
 
+  void _onTextChanged(String value) {
+    ref.read(addRecipeProvider.notifier).setTextValue(value);
+  }
+
+  void _onModeChanged(AddRecipeInputMode mode) {
+    ref.read(addRecipeProvider.notifier).setInputMode(mode);
+  }
+
   void _onSubmit() {
     _urlFocusNode.unfocus();
+    _textFocusNode.unfocus();
     ref.read(addRecipeProvider.notifier).submit();
   }
 
   void _onRetry() {
     ref.read(addRecipeProvider.notifier).reset();
     _urlController.clear();
+    _textController.clear();
   }
 
   void _onViewRecipe(String id) {
@@ -53,14 +67,31 @@ class _AddRecipePageState extends ConsumerState<AddRecipePage> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(addRecipeProvider);
+
+    // Navigate to recipe detail on success
+    ref.listen(addRecipeProvider, (previous, current) {
+      if (current.status == AddRecipeStatus.success &&
+          current.result != null &&
+          (previous?.status != AddRecipeStatus.success)) {
+        _onViewRecipe(current.result!.id);
+      }
+    });
+
     final isLoading =
         state.status == AddRecipeStatus.fetching ||
         state.status == AddRecipeStatus.parsing;
-    final isValidUrl =
-        state.status != AddRecipeStatus.invalidUrl && state.url.isNotEmpty;
     final showRetry =
         state.errorCode == AddRecipeErrorCode.fetchFailed ||
-        state.errorCode == AddRecipeErrorCode.rateLimit;
+        state.errorCode == AddRecipeErrorCode.rateLimit ||
+        state.errorCode == AddRecipeErrorCode.parseFailed;
+
+    // Determine if form is valid based on input mode
+    final isUrlMode = state.inputMode == AddRecipeInputMode.url;
+    final isFormValid = isUrlMode
+        ? (state.status != AddRecipeStatus.invalidUrl && state.url.isNotEmpty)
+        : (state.status != AddRecipeStatus.error &&
+              state.textValue.length >= minTextLength &&
+              state.textValue.length <= maxTextLength);
 
     return Scaffold(
       appBar: AppBar(
@@ -72,25 +103,34 @@ class _AddRecipePageState extends ConsumerState<AddRecipePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // URL Input Field
-            TextField(
-              controller: _urlController,
-              focusNode: _urlFocusNode,
-              decoration: InputDecoration(
-                labelText: 'Recipe URL',
-                hintText: 'Paste Recipe URL',
-                prefixIcon: const Icon(Icons.link),
-                errorText: state.status == AddRecipeStatus.invalidUrl
-                    ? _getErrorMessage(state.errorCode, state.errorMessage)
-                    : null,
-              ),
-              keyboardType: TextInputType.url,
-              textInputAction: TextInputAction.done,
-              autocorrect: false,
-              onChanged: _onUrlChanged,
-              onSubmitted: (_) => _onSubmit(),
-              enabled: !isLoading,
+            // Input Mode Segmented Control
+            SegmentedButton<AddRecipeInputMode>(
+              segments: const [
+                ButtonSegment<AddRecipeInputMode>(
+                  value: AddRecipeInputMode.url,
+                  label: Text('From URL'),
+                  icon: Icon(Icons.link),
+                ),
+                ButtonSegment<AddRecipeInputMode>(
+                  value: AddRecipeInputMode.text,
+                  label: Text('From Text'),
+                  icon: Icon(Icons.text_fields),
+                ),
+              ],
+              selected: {state.inputMode},
+              onSelectionChanged: (selection) {
+                _onModeChanged(selection.first);
+              },
+              showSelectedIcon: false,
             ),
+
+            const SizedBox(height: 24),
+
+            // Input Field based on mode
+            if (isUrlMode)
+              _buildUrlInput(state, isLoading)
+            else
+              _buildTextInput(state, isLoading),
 
             const SizedBox(height: 24),
 
@@ -102,10 +142,90 @@ class _AddRecipePageState extends ConsumerState<AddRecipePage> {
             else if (state.status == AddRecipeStatus.error)
               _buildErrorState(state, showRetry)
             else
-              _buildSubmitButton(isValidUrl),
+              _buildSubmitButton(isFormValid, !isUrlMode),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildUrlInput(AddRecipeState state, bool isLoading) {
+    return TextField(
+      controller: _urlController,
+      focusNode: _urlFocusNode,
+      decoration: InputDecoration(
+        labelText: 'Recipe URL',
+        hintText: 'Paste Recipe URL',
+        prefixIcon: const Icon(Icons.link),
+        errorText: state.status == AddRecipeStatus.invalidUrl
+            ? _getErrorMessage(state.errorCode, state.errorMessage)
+            : null,
+      ),
+      keyboardType: TextInputType.url,
+      textInputAction: TextInputAction.done,
+      autocorrect: false,
+      onChanged: _onUrlChanged,
+      onSubmitted: (_) => _onSubmit(),
+      enabled: !isLoading,
+    );
+  }
+
+  Widget _buildTextInput(AddRecipeState state, bool isLoading) {
+    // Character counter
+    final charCount = state.textValue.length;
+    final charCountText = '$charCount / $maxTextLength';
+    final isOverLimit = charCount > maxTextLength;
+    final isUnderLimit = charCount > 0 && charCount < minTextLength;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _textController,
+          focusNode: _textFocusNode,
+          decoration: InputDecoration(
+            labelText: 'Recipe Text',
+            hintText: 'Paste your recipe here...',
+            prefixIcon: const Icon(Icons.description),
+            alignLabelWithHint: true,
+            errorText:
+                state.status == AddRecipeStatus.error &&
+                    (state.errorCode == AddRecipeErrorCode.textTooShort ||
+                        state.errorCode == AddRecipeErrorCode.textTooLong ||
+                        state.errorCode == AddRecipeErrorCode.urlDetected)
+                ? _getErrorMessage(state.errorCode, state.errorMessage)
+                : null,
+            counterText: charCountText,
+            counterStyle: TextStyle(
+              color: isOverLimit
+                  ? Theme.of(context).colorScheme.error
+                  : (isUnderLimit
+                        ? Theme.of(context).colorScheme.secondary
+                        : Theme.of(context).colorScheme.onSurfaceVariant),
+              fontWeight: (isOverLimit || isUnderLimit)
+                  ? FontWeight.w600
+                  : null,
+            ),
+          ),
+          maxLines: 10,
+          minLines: 8,
+          keyboardType: TextInputType.multiline,
+          textInputAction: TextInputAction.newline,
+          onChanged: _onTextChanged,
+          enabled: !isLoading,
+        ),
+
+        // Helper text for text input
+        if (state.textValue.isEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Enter at least $minTextLength characters. You can paste recipes from cookbooks, websites, or type them directly.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -251,12 +371,12 @@ class _AddRecipePageState extends ConsumerState<AddRecipePage> {
     );
   }
 
-  Widget _buildSubmitButton(bool isValidUrl) {
+  Widget _buildSubmitButton(bool isFormValid, bool isTextMode) {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton(
-        onPressed: isValidUrl ? _onSubmit : null,
-        child: const Text('Save Recipe'),
+        onPressed: isFormValid ? _onSubmit : null,
+        child: Text(isTextMode ? 'Parse Recipe' : 'Save Recipe'),
       ),
     );
   }
@@ -273,6 +393,12 @@ class _AddRecipePageState extends ConsumerState<AddRecipePage> {
         return 'Too Many Requests';
       case AddRecipeErrorCode.duplicateUrl:
         return 'Recipe Already Exists';
+      case AddRecipeErrorCode.textTooShort:
+        return 'Text Too Short';
+      case AddRecipeErrorCode.textTooLong:
+        return 'Text Too Long';
+      case AddRecipeErrorCode.urlDetected:
+        return 'URL Detected';
       case AddRecipeErrorCode.unknown:
         return 'Something Went Wrong';
     }
@@ -290,11 +416,17 @@ class _AddRecipePageState extends ConsumerState<AddRecipePage> {
       case AddRecipeErrorCode.fetchFailed:
         return 'Unable to fetch the recipe. Please check your connection and try again.';
       case AddRecipeErrorCode.parseFailed:
-        return 'We couldn\'t parse this recipe. The website may not be supported.';
+        return 'We couldn\'t parse that recipe. Please check the format and try again.';
       case AddRecipeErrorCode.rateLimit:
         return 'Too many requests. Please wait a moment and try again.';
       case AddRecipeErrorCode.duplicateUrl:
         return 'This recipe has already been added to your collection.';
+      case AddRecipeErrorCode.textTooShort:
+        return 'Your recipe text is too short. Please provide at least 50 characters.';
+      case AddRecipeErrorCode.textTooLong:
+        return 'Your recipe text is too long. Please keep it under 10,000 characters.';
+      case AddRecipeErrorCode.urlDetected:
+        return 'It looks like you pasted a URL. Please use the URL import tab instead.';
       case AddRecipeErrorCode.unknown:
         return 'An unexpected error occurred. Please try again.';
     }

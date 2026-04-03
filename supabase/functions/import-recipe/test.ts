@@ -7,8 +7,10 @@ const corsHeaders = {
 
 interface ImportRecipeResponse {
   id?: string
+  recipe_id?: string
   status?: 'pending' | 'parsing' | 'parsed' | 'draft' | 'error'
   error?: string
+  validation_error?: string
 }
 
 function isValidUrlFormat(url: string): boolean {
@@ -87,6 +89,27 @@ function hasRecipePatterns(html: string): boolean {
   return patterns.some(pattern => pattern.test(html))
 }
 
+// Mock Supabase client for testing
+interface MockRecipe {
+  id: string
+  user_id: string
+  source_url?: string
+  source_text?: string
+  status: string
+  title: string
+}
+
+const mockRecipes: MockRecipe[] = []
+
+function createMockRecipe(data: Omit<MockRecipe, 'id'>): MockRecipe {
+  const recipe: MockRecipe = {
+    id: `test-recipe-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    ...data,
+  }
+  mockRecipes.push(recipe)
+  return recipe
+}
+
 // Mock handler for testing validation logic
 async function handleRequest(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') {
@@ -104,8 +127,71 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 
   try {
-    const body = await req.json()
+    const body: { url?: string; text?: string; source?: 'url' | 'text' } = await req.json()
 
+    // Check for mutual exclusivity of url and text
+    if (body.url && body.text) {
+      const response: ImportRecipeResponse = {
+        error: 'Cannot provide both url and text. Use only one.',
+        validation_error: 'url_and_text_mutually_exclusive',
+      }
+      return new Response(
+        JSON.stringify(response),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Handle text import mode
+    if (body.source === 'text' || body.text !== undefined) {
+      if (!body.text || typeof body.text !== 'string') {
+        const response: ImportRecipeResponse = {
+          error: 'Text content is required',
+          validation_error: 'text_required',
+        }
+        return new Response(
+          JSON.stringify(response),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+
+      const validation = validateTextInput(body.text)
+      if (!validation.valid) {
+        const response: ImportRecipeResponse = {
+          error: `Invalid text input: ${validation.reason}`,
+          validation_error: validation.reason,
+        }
+        return new Response(
+          JSON.stringify(response),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+
+      const authHeader = req.headers.get('authorization')
+      if (!authHeader) {
+        const response: ImportRecipeResponse = {
+          error: 'Authorization required',
+        }
+        return new Response(
+          JSON.stringify(response),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+
+      // Mock recipe creation for text import
+      const recipe = createMockRecipe({
+        user_id: 'test-user-id',
+        source_text: body.text,
+        status: 'pending',
+        title: '',
+      })
+
+      return new Response(
+        JSON.stringify({ recipe_id: recipe.id, status: 'pending' }),
+        { status: 202, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Handle URL import mode (default)
     if (!body.url || typeof body.url !== 'string') {
       return new Response(
         JSON.stringify({ error: 'URL is required' }),
@@ -564,4 +650,378 @@ Deno.test('parseWithOpenRouter handles markdown code blocks', () => {
   }
   const result = JSON.parse(parsedContent)
   assertEquals(result.title, 'Test')
+})
+
+// Text validation constants
+const MIN_TEXT_LENGTH = 50
+const MAX_TEXT_LENGTH = 10000
+
+// Text validation functions
+function stripHtmlTags(text: string): string {
+  return text
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isUrlPattern(text: string): boolean {
+  return /^https?:\/\//i.test(text.trim())
+}
+
+function validateTextInput(text: string): { valid: boolean; reason?: string } {
+  if (typeof text !== 'string') {
+    return { valid: false, reason: 'text_not_string' }
+  }
+
+  if (isUrlPattern(text)) {
+    return { valid: false, reason: 'url_detected_use_url_import' }
+  }
+
+  const strippedText = stripHtmlTags(text)
+
+  if (strippedText.length < MIN_TEXT_LENGTH) {
+    return { valid: false, reason: 'text_too_short' }
+  }
+
+  if (strippedText.length > MAX_TEXT_LENGTH) {
+    return { valid: false, reason: 'text_too_long' }
+  }
+
+  return { valid: true }
+}
+
+Deno.test('validateTextInput returns valid for proper recipe text', () => {
+  const text = 'This is a delicious chocolate cake recipe. Ingredients: 2 cups flour, 1 cup sugar, 3 eggs, 1 cup milk. Instructions: Mix all ingredients together and bake at 350F for 30 minutes. Enjoy!'
+  const result = validateTextInput(text)
+  assertEquals(result.valid, true)
+  assertEquals(result.reason, undefined)
+})
+
+Deno.test('validateTextInput returns text_too_short for short text', () => {
+  const text = 'Too short'
+  const result = validateTextInput(text)
+  assertEquals(result.valid, false)
+  assertEquals(result.reason, 'text_too_short')
+})
+
+Deno.test('validateTextInput returns text_too_long for text exceeding 10000 chars', () => {
+  const text = 'Recipe '.repeat(3000)
+  const result = validateTextInput(text)
+  assertEquals(result.valid, false)
+  assertEquals(result.reason, 'text_too_long')
+})
+
+Deno.test('validateTextInput returns url_detected_use_url_import for http:// URL', () => {
+  const text = 'http://example.com/recipe'
+  const result = validateTextInput(text)
+  assertEquals(result.valid, false)
+  assertEquals(result.reason, 'url_detected_use_url_import')
+})
+
+Deno.test('validateTextInput returns url_detected_use_url_import for https:// URL', () => {
+  const text = 'https://example.com/recipe'
+  const result = validateTextInput(text)
+  assertEquals(result.valid, false)
+  assertEquals(result.reason, 'url_detected_use_url_import')
+})
+
+Deno.test('validateTextInput strips HTML tags before length check', () => {
+  const text = '<p>This is a ' + '<b>bold</b> '.repeat(10) + 'recipe with lots of ingredients and instructions that make it long enough to pass validation.</p>'
+  const result = validateTextInput(text)
+  assertEquals(result.valid, true)
+})
+
+Deno.test('validateTextInput removes script tags when stripping HTML', () => {
+  const text = '<script>alert("xss")</script>This is a recipe with enough text to pass the minimum length requirement for validation to work properly.'
+  const result = validateTextInput(text)
+  assertEquals(result.valid, true)
+  assertEquals(result.reason, undefined)
+})
+
+Deno.test('validateTextInput removes style tags when stripping HTML', () => {
+  const text = '<style>.hidden{display:none}</style>This is a recipe with enough text to pass the minimum length requirement for validation to work properly.'
+  const result = validateTextInput(text)
+  assertEquals(result.valid, true)
+  assertEquals(result.reason, undefined)
+})
+
+Deno.test('validateTextInput handles text exactly at minimum length', () => {
+  const text = 'x'.repeat(50)
+  const result = validateTextInput(text)
+  assertEquals(result.valid, true)
+})
+
+Deno.test('validateTextInput handles text exactly at maximum length', () => {
+  const text = 'x'.repeat(10000)
+  const result = validateTextInput(text)
+  assertEquals(result.valid, true)
+})
+
+Deno.test('validateTextInput rejects text just over maximum length', () => {
+  const text = 'x'.repeat(10001)
+  const result = validateTextInput(text)
+  assertEquals(result.valid, false)
+})
+
+Deno.test('validateTextInput rejects text just under minimum length', () => {
+  const text = 'x'.repeat(49)
+  const result = validateTextInput(text)
+  assertEquals(result.valid, false)
+})
+
+Deno.test('validateTextInput handles text with only HTML tags that become too short', () => {
+  const text = '<p><br><div>' + 'x'.repeat(20) + '</div></p>'
+  const result = validateTextInput(text)
+  assertEquals(result.valid, false)
+  assertEquals(result.reason, 'text_too_short')
+})
+
+Deno.test('validateTextInput handles text with whitespace around URL', () => {
+  const text = '   https://example.com/recipe   '
+  const result = validateTextInput(text)
+  assertEquals(result.valid, false)
+  assertEquals(result.reason, 'url_detected_use_url_import')
+})
+
+Deno.test('isUrlPattern returns true for http://', () => {
+  assertEquals(isUrlPattern('http://example.com'), true)
+})
+
+Deno.test('isUrlPattern returns true for https://', () => {
+  assertEquals(isUrlPattern('https://example.com'), true)
+})
+
+Deno.test('isUrlPattern returns false for non-URL text', () => {
+  assertEquals(isUrlPattern('This is not a URL'), false)
+})
+
+Deno.test('stripHtmlTags removes all HTML tags', () => {
+  const html = '<p>Hello <b>world</b></p>'
+  const result = stripHtmlTags(html)
+  assertEquals(result, 'Hello world')
+})
+
+Deno.test('stripHtmlTags removes script tags', () => {
+  const html = '<script>alert("xss")</script><p>Hello</p>'
+  const result = stripHtmlTags(html)
+  assertEquals(result.includes('<script>'), false)
+  assertEquals(result.includes('Hello'), true)
+})
+
+Deno.test('stripHtmlTags removes style tags', () => {
+  const html = '<style>.hidden { display: none; }</style><p>Hello</p>'
+  const result = stripHtmlTags(html)
+  assertEquals(result.includes('<style>'), false)
+  assertEquals(result.includes('Hello'), true)
+})
+
+// HTTP handler tests for text import
+Deno.test('returns 202 for valid text input', async () => {
+  const validText = 'This is a delicious chocolate cake recipe. Ingredients: 2 cups flour, 1 cup sugar, 3 eggs, 1 cup milk, 1/2 cup cocoa powder. Instructions: Mix all ingredients together and bake at 350F for 30 minutes. Enjoy this amazing dessert!'
+  const req = new Request('http://localhost:54321/functions/v1/import-recipe', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer test-token',
+    },
+    body: JSON.stringify({ text: validText }),
+  })
+
+  const response = await handleRequest(req)
+  assertEquals(response.status, 202)
+  const result = await response.json()
+  assertExists(result.recipe_id)
+  assertEquals(result.status, 'pending')
+})
+
+Deno.test('returns 202 for valid text input with source=text', async () => {
+  const validText = 'This is a delicious chocolate cake recipe. Ingredients: 2 cups flour, 1 cup sugar, 3 eggs, 1 cup milk, 1/2 cup cocoa powder. Instructions: Mix all ingredients together and bake at 350F for 30 minutes. Enjoy this amazing dessert!'
+  const req = new Request('http://localhost:54321/functions/v1/import-recipe', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer test-token',
+    },
+    body: JSON.stringify({ source: 'text', text: validText }),
+  })
+
+  const response = await handleRequest(req)
+  assertEquals(response.status, 202)
+  const result = await response.json()
+  assertExists(result.recipe_id)
+  assertEquals(result.status, 'pending')
+})
+
+Deno.test('returns 400 with text_too_short for text under 50 chars', async () => {
+  const shortText = 'Too short'
+  const req = new Request('http://localhost:54321/functions/v1/import-recipe', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer test-token',
+    },
+    body: JSON.stringify({ text: shortText }),
+  })
+
+  const response = await handleRequest(req)
+  assertEquals(response.status, 400)
+  const result = await response.json()
+  assertEquals(result.validation_error, 'text_too_short')
+})
+
+Deno.test('returns 400 with text_too_long for text exceeding 10000 chars', async () => {
+  const longText = 'Recipe '.repeat(3000)
+  const req = new Request('http://localhost:54321/functions/v1/import-recipe', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer test-token',
+    },
+    body: JSON.stringify({ text: longText }),
+  })
+
+  const response = await handleRequest(req)
+  assertEquals(response.status, 400)
+  const result = await response.json()
+  assertEquals(result.validation_error, 'text_too_long')
+})
+
+Deno.test('returns 400 with url_detected_use_url_import when URL in text', async () => {
+  const urlText = 'https://example.com/recipe'
+  const req = new Request('http://localhost:54321/functions/v1/import-recipe', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer test-token',
+    },
+    body: JSON.stringify({ text: urlText }),
+  })
+
+  const response = await handleRequest(req)
+  assertEquals(response.status, 400)
+  const result = await response.json()
+  assertEquals(result.validation_error, 'url_detected_use_url_import')
+})
+
+Deno.test('returns 400 with url_detected_use_url_import when http URL in text', async () => {
+  const urlText = 'http://example.com/recipe'
+  const req = new Request('http://localhost:54321/functions/v1/import-recipe', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer test-token',
+    },
+    body: JSON.stringify({ text: urlText }),
+  })
+
+  const response = await handleRequest(req)
+  assertEquals(response.status, 400)
+  const result = await response.json()
+  assertEquals(result.validation_error, 'url_detected_use_url_import')
+})
+
+Deno.test('returns 400 with url_and_text_mutually_exclusive when both url and text provided', async () => {
+  const req = new Request('http://localhost:54321/functions/v1/import-recipe', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer test-token',
+    },
+    body: JSON.stringify({ 
+      url: 'https://example.com/recipe',
+      text: 'This is a recipe with enough text to pass the minimum length requirement for validation to work properly.'
+    }),
+  })
+
+  const response = await handleRequest(req)
+  assertEquals(response.status, 400)
+  const result = await response.json()
+  assertEquals(result.validation_error, 'url_and_text_mutually_exclusive')
+})
+
+Deno.test('returns 400 with text_required when source=text but no text provided', async () => {
+  const req = new Request('http://localhost:54321/functions/v1/import-recipe', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer test-token',
+    },
+    body: JSON.stringify({ source: 'text' }),
+  })
+
+  const response = await handleRequest(req)
+  assertEquals(response.status, 400)
+  const result = await response.json()
+  assertEquals(result.validation_error, 'text_required')
+})
+
+Deno.test('returns 400 with text_required when text is empty string', async () => {
+  const req = new Request('http://localhost:54321/functions/v1/import-recipe', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer test-token',
+    },
+    body: JSON.stringify({ source: 'text', text: '' }),
+  })
+
+  const response = await handleRequest(req)
+  assertEquals(response.status, 400)
+  const result = await response.json()
+  assertEquals(result.validation_error, 'text_required')
+})
+
+Deno.test('returns 401 for text import without authorization', async () => {
+  const validText = 'This is a delicious chocolate cake recipe. Ingredients: 2 cups flour, 1 cup sugar, 3 eggs, 1 cup milk. Instructions: Mix all ingredients together and bake at 350F for 30 minutes.'
+  const req = new Request('http://localhost:54321/functions/v1/import-recipe', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ text: validText }),
+  })
+
+  const response = await handleRequest(req)
+  assertEquals(response.status, 401)
+})
+
+Deno.test('text import creates recipe with source_text populated', async () => {
+  const validText = 'This is a delicious chocolate cake recipe. Ingredients: 2 cups flour, 1 cup sugar, 3 eggs, 1 cup milk, 1/2 cup cocoa powder. Instructions: Mix all ingredients together and bake at 350F for 30 minutes. Enjoy!'
+  const req = new Request('http://localhost:54321/functions/v1/import-recipe', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer test-token',
+    },
+    body: JSON.stringify({ text: validText }),
+  })
+
+  const response = await handleRequest(req)
+  assertEquals(response.status, 202)
+  const result = await response.json()
+  
+  // Verify the recipe was created with source_text
+  const createdRecipe = mockRecipes.find(r => r.id === result.recipe_id)
+  assertExists(createdRecipe)
+  assertEquals(createdRecipe.source_text, validText)
+  assertEquals(createdRecipe.status, 'pending')
+})
+
+Deno.test('text import strips HTML before validation', async () => {
+  const htmlText = '<p>This is a ' + '<b>bold</b> '.repeat(10) + 'recipe with lots of ingredients and instructions that make it long enough to pass validation.</p>'
+  const req = new Request('http://localhost:54321/functions/v1/import-recipe', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer test-token',
+    },
+    body: JSON.stringify({ text: htmlText }),
+  })
+
+  const response = await handleRequest(req)
+  assertEquals(response.status, 202)
+  const result = await response.json()
+  assertExists(result.recipe_id)
 })

@@ -51,6 +51,11 @@ class MockRecipeRepository implements IRecipeRepository {
   Future<void> deleteRecipe(String id) async {
     _recipes.removeWhere((r) => r.id == id);
   }
+
+  @override
+  Future<Recipe> createRecipeFromText(String text) async {
+    throw UnimplementedError();
+  }
 }
 
 /// Mock implementation of [IIngredientRepository] for testing.

@@ -240,6 +240,94 @@ class RecipeRepository implements IRecipeRepository {
   }
 
   @override
+  Future<Recipe> createRecipeFromText(String text) async {
+    try {
+      // Call import-recipe Edge Function with text source
+      final response = await _client.functions.invoke(
+        'import-recipe',
+        body: {'source': 'text', 'text': text},
+      );
+
+      // Handle 400 Bad Request (validation error)
+      if (response.status == 400) {
+        final data = response.data as Map<String, dynamic>?;
+        final errorCode = data?['code'] as String?;
+        final errorMessage = data?['error'] as String? ?? 'Invalid input';
+
+        // Map specific error codes to appropriate exceptions
+        switch (errorCode) {
+          case 'text_too_short':
+            throw ValidationException(
+              message: errorMessage,
+              errorCode: ErrorCode.textTooShort,
+            );
+          case 'text_too_long':
+            throw ValidationException(
+              message: errorMessage,
+              errorCode: ErrorCode.textTooLong,
+            );
+          case 'url_detected_use_url_import':
+            throw ParseException(
+              message: errorMessage,
+              errorCode: ErrorCode.urlDetectedInText,
+            );
+          default:
+            throw ValidationException(message: 'Invalid input: $errorMessage');
+        }
+      }
+
+      // Handle 500 Server Error
+      if (response.status == 500) {
+        throw const NetworkException(
+          message: 'Server error during recipe import',
+          retryable: true,
+        );
+      }
+
+      // Handle unexpected status codes
+      if (response.status != 202) {
+        throw NetworkException(
+          message: 'Unexpected response status: ${response.status}',
+          retryable: true,
+        );
+      }
+
+      // Extract recipe_id from 202 response
+      final data = response.data as Map<String, dynamic>;
+      final recipeId = data['recipe_id'] as String?;
+
+      if (recipeId == null || recipeId.isEmpty) {
+        throw const ParseException(
+          message: 'Invalid response: missing recipe_id',
+          errorCode: ErrorCode.parseFailed,
+        );
+      }
+
+      // Subscribe to recipe changes via watchRecipe
+      final recipeStream = watchRecipe(recipeId);
+
+      // Wait for processing to complete (status != pending && != parsing)
+      final recipe = await recipeStream.firstWhere(
+        (recipe) =>
+            recipe.status != RecipeStatus.pending &&
+            recipe.status != RecipeStatus.parsing,
+      );
+
+      // Check for error status
+      if (recipe.status == RecipeStatus.error) {
+        throw const ParseException(
+          message: 'Failed to parse recipe from text',
+          errorCode: ErrorCode.parseFailed,
+        );
+      }
+
+      return recipe;
+    } on PostgrestException catch (e) {
+      throw _mapPostgrestException(e);
+    }
+  }
+
+  @override
   Future<void> deleteRecipe(String id) async {
     try {
       // Soft delete by setting status to 'deleted'

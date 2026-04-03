@@ -7,6 +7,15 @@ import 'package:app/presentation/providers/providers.dart';
 
 part 'add_recipe_provider.g.dart';
 
+/// Input mode for add recipe form.
+enum AddRecipeInputMode {
+  /// URL input mode.
+  url,
+
+  /// Direct text input mode.
+  text,
+}
+
 /// Error codes for add recipe failures.
 enum AddRecipeErrorCode {
   /// Invalid URL format provided.
@@ -23,6 +32,15 @@ enum AddRecipeErrorCode {
 
   /// Duplicate URL - recipe already exists.
   duplicateUrl,
+
+  /// Text input is too short.
+  textTooShort,
+
+  /// Text input is too long.
+  textTooLong,
+
+  /// URL detected in text input.
+  urlDetected,
 
   /// Unknown error occurred.
   unknown,
@@ -53,15 +71,23 @@ enum AddRecipeStatus {
 class AddRecipeState {
   /// Creates an [AddRecipeState] with default values.
   const AddRecipeState({
+    this.inputMode = AddRecipeInputMode.url,
     this.url = '',
+    this.textValue = '',
     this.status = AddRecipeStatus.empty,
     this.errorCode = AddRecipeErrorCode.unknown,
     this.errorMessage = '',
     this.result,
   });
 
+  /// Current input mode (URL or text).
+  final AddRecipeInputMode inputMode;
+
   /// The URL input by the user.
   final String url;
+
+  /// The text input by the user (for direct recipe text entry).
+  final String textValue;
 
   /// Current validation status.
   final AddRecipeStatus status;
@@ -77,14 +103,18 @@ class AddRecipeState {
 
   /// Creates a copy of this state with the given fields replaced.
   AddRecipeState copyWith({
+    AddRecipeInputMode? inputMode,
     String? url,
+    String? textValue,
     AddRecipeStatus? status,
     AddRecipeErrorCode? errorCode,
     String? errorMessage,
     Recipe? result,
   }) {
     return AddRecipeState(
+      inputMode: inputMode ?? this.inputMode,
       url: url ?? this.url,
+      textValue: textValue ?? this.textValue,
       status: status ?? this.status,
       errorCode: errorCode ?? this.errorCode,
       errorMessage: errorMessage ?? this.errorMessage,
@@ -96,7 +126,9 @@ class AddRecipeState {
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
     return other is AddRecipeState &&
+        other.inputMode == inputMode &&
         other.url == url &&
+        other.textValue == textValue &&
         other.status == status &&
         other.errorCode == errorCode &&
         other.errorMessage == errorMessage &&
@@ -105,7 +137,15 @@ class AddRecipeState {
 
   @override
   int get hashCode {
-    return Object.hash(url, status, errorCode, errorMessage, result);
+    return Object.hash(
+      inputMode,
+      url,
+      textValue,
+      status,
+      errorCode,
+      errorMessage,
+      result,
+    );
   }
 }
 
@@ -114,6 +154,12 @@ final _urlRegex = RegExp(
   r'^https?:\/\/([\w\-]+\.)+[\w\-]+(\/[\w\-._~:/?#\[\]@!$&()*+,;=]*)?$',
   caseSensitive: false,
 );
+
+/// Minimum text input length for recipe.
+const int minTextLength = 50;
+
+/// Maximum text input length for recipe.
+const int maxTextLength = 10000;
 
 /// Notifier for managing add recipe form state.
 ///
@@ -135,7 +181,7 @@ class AddRecipe extends _$AddRecipe {
     final trimmedUrl = url.trim();
 
     if (trimmedUrl.isEmpty) {
-      state = const AddRecipeState();
+      state = AddRecipeState(inputMode: state.inputMode);
       return;
     }
 
@@ -150,11 +196,80 @@ class AddRecipe extends _$AddRecipe {
     );
   }
 
-  /// Submits the URL to create a new recipe.
+  /// Sets the input mode (URL or text).
+  void setInputMode(AddRecipeInputMode mode) {
+    if (state.inputMode == mode) return;
+
+    // Reset form when switching modes
+    state = AddRecipeState(inputMode: mode);
+  }
+
+  /// Updates the text input and validates in real-time.
   ///
-  /// Validates URL format, then calls repository.createRecipe(url).
+  /// Validates length (50-10K chars) and checks for URL patterns.
+  void setTextValue(String text) {
+    final trimmedText = text.trim();
+
+    if (trimmedText.isEmpty) {
+      state = const AddRecipeState(inputMode: AddRecipeInputMode.text);
+      return;
+    }
+
+    // Check for URL in text
+    if (_containsUrl(trimmedText)) {
+      state = state.copyWith(
+        textValue: trimmedText,
+        status: AddRecipeStatus.error,
+        errorCode: AddRecipeErrorCode.urlDetected,
+        errorMessage: 'Please enter recipe text, not a URL',
+      );
+      return;
+    }
+
+    // Check length constraints
+    if (trimmedText.length < minTextLength) {
+      state = state.copyWith(
+        textValue: trimmedText,
+        status: AddRecipeStatus.error,
+        errorCode: AddRecipeErrorCode.textTooShort,
+        errorMessage: 'Recipe text must be at least $minTextLength characters',
+      );
+      return;
+    }
+
+    if (trimmedText.length > maxTextLength) {
+      state = state.copyWith(
+        textValue: trimmedText,
+        status: AddRecipeStatus.error,
+        errorCode: AddRecipeErrorCode.textTooLong,
+        errorMessage: 'Recipe text must be less than $maxTextLength characters',
+      );
+      return;
+    }
+
+    // Valid text
+    state = state.copyWith(
+      textValue: trimmedText,
+      status: AddRecipeStatus.empty,
+      errorCode: AddRecipeErrorCode.unknown,
+      errorMessage: '',
+    );
+  }
+
+  /// Submits the form to create a new recipe.
+  ///
+  /// Routes to the appropriate repository method based on input mode.
   /// Updates state throughout the workflow: fetching -> parsing -> success/error.
   Future<void> submit() async {
+    if (state.inputMode == AddRecipeInputMode.text) {
+      await _submitText();
+    } else {
+      await _submitUrl();
+    }
+  }
+
+  /// Submits URL to create a new recipe.
+  Future<void> _submitUrl() async {
     final url = state.url.trim();
 
     // Validate URL format before submission
@@ -221,6 +336,75 @@ class AddRecipe extends _$AddRecipe {
     }
   }
 
+  /// Submits text to create a new recipe.
+  Future<void> _submitText() async {
+    final text = state.textValue.trim();
+
+    // Validate text before submission (should already be valid from setTextValue)
+    if (text.isEmpty || text.length < minTextLength) {
+      state = state.copyWith(
+        status: AddRecipeStatus.error,
+        errorCode: AddRecipeErrorCode.textTooShort,
+        errorMessage: 'Recipe text must be at least $minTextLength characters',
+      );
+      return;
+    }
+
+    if (text.length > maxTextLength) {
+      state = state.copyWith(
+        status: AddRecipeStatus.error,
+        errorCode: AddRecipeErrorCode.textTooLong,
+        errorMessage: 'Recipe text must be less than $maxTextLength characters',
+      );
+      return;
+    }
+
+    if (_containsUrl(text)) {
+      state = state.copyWith(
+        status: AddRecipeStatus.error,
+        errorCode: AddRecipeErrorCode.urlDetected,
+        errorMessage: 'Please enter recipe text, not a URL',
+      );
+      return;
+    }
+
+    // Start parsing
+    state = state.copyWith(status: AddRecipeStatus.parsing, errorMessage: '');
+
+    try {
+      // Call repository to create recipe from text
+      final recipe = await _repository.createRecipeFromText(text);
+
+      state = state.copyWith(status: AddRecipeStatus.success, result: recipe);
+    } on ValidationException catch (e) {
+      final errorCode = _mapValidationExceptionToErrorCode(e);
+      state = state.copyWith(
+        status: AddRecipeStatus.error,
+        errorCode: errorCode,
+        errorMessage: e.message,
+      );
+    } on ParseException catch (e) {
+      final errorCode = _mapParseExceptionToErrorCode(e);
+      state = state.copyWith(
+        status: AddRecipeStatus.error,
+        errorCode: errorCode,
+        errorMessage: e.message,
+      );
+    } on DatabaseException {
+      state = state.copyWith(
+        status: AddRecipeStatus.error,
+        errorCode: AddRecipeErrorCode.unknown,
+        errorMessage: 'Failed to save recipe. Please try again.',
+      );
+    } catch (e) {
+      state = state.copyWith(
+        status: AddRecipeStatus.error,
+        errorCode: AddRecipeErrorCode.unknown,
+        errorMessage: 'An unexpected error occurred. Please try again.',
+      );
+    }
+  }
+
   /// Resets the form state for a new submission.
   void reset() {
     state = const AddRecipeState();
@@ -229,6 +413,11 @@ class AddRecipe extends _$AddRecipe {
   /// Validates URL format.
   bool _isValidUrl(String url) {
     return _urlRegex.hasMatch(url);
+  }
+
+  /// Checks if text contains a URL pattern.
+  bool _containsUrl(String text) {
+    return _urlRegex.hasMatch(text);
   }
 
   /// Maps [ParseException] to [AddRecipeErrorCode].
@@ -242,6 +431,35 @@ class AddRecipe extends _$AddRecipe {
         return AddRecipeErrorCode.parseFailed;
       case ErrorCode.rateLimit:
         return AddRecipeErrorCode.rateLimit;
+      case ErrorCode.textTooShort:
+        return AddRecipeErrorCode.textTooShort;
+      case ErrorCode.textTooLong:
+        return AddRecipeErrorCode.textTooLong;
+      case ErrorCode.urlDetectedInText:
+        return AddRecipeErrorCode.urlDetected;
+    }
+  }
+
+  /// Maps [ValidationException] to [AddRecipeErrorCode].
+  AddRecipeErrorCode _mapValidationExceptionToErrorCode(ValidationException e) {
+    if (e.errorCode == null) {
+      return AddRecipeErrorCode.unknown;
+    }
+    switch (e.errorCode!) {
+      case ErrorCode.invalidUrl:
+        return AddRecipeErrorCode.invalidUrl;
+      case ErrorCode.fetchFailed:
+        return AddRecipeErrorCode.fetchFailed;
+      case ErrorCode.parseFailed:
+        return AddRecipeErrorCode.parseFailed;
+      case ErrorCode.rateLimit:
+        return AddRecipeErrorCode.rateLimit;
+      case ErrorCode.textTooShort:
+        return AddRecipeErrorCode.textTooShort;
+      case ErrorCode.textTooLong:
+        return AddRecipeErrorCode.textTooLong;
+      case ErrorCode.urlDetectedInText:
+        return AddRecipeErrorCode.urlDetected;
     }
   }
 }

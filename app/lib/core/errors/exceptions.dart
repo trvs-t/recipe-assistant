@@ -11,6 +11,15 @@ enum ErrorCode {
 
   /// Rate limit exceeded.
   rateLimit,
+
+  /// Text input is too short.
+  textTooShort,
+
+  /// Text input is too long.
+  textTooLong,
+
+  /// URL detected in text input.
+  urlDetectedInText,
 }
 
 /// Base exception class for all recipe-related errors.
@@ -70,11 +79,20 @@ class ParseException extends RecipeException {
 
 /// Exception thrown when URL validation fails.
 class ValidationException extends RecipeException {
-  /// Creates a [ValidationException] with the given message.
-  const ValidationException({required String message}) : super(message);
+  /// Creates a [ValidationException] with the given message and error code.
+  const ValidationException({required String message, this.errorCode})
+    : super(message);
+
+  /// The specific error code for this validation failure.
+  final ErrorCode? errorCode;
 
   @override
-  String toString() => 'ValidationException: $message';
+  String toString() {
+    if (errorCode != null) {
+      return 'ValidationException: $message (code: $errorCode)';
+    }
+    return 'ValidationException: $message';
+  }
 }
 
 /// Exception thrown when a database operation fails.

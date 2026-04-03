@@ -49,6 +49,11 @@ class MockRecipeRepository implements IRecipeRepository {
     throw UnimplementedError();
   }
 
+  @override
+  Future<Recipe> createRecipeFromText(String text) async {
+    throw UnimplementedError();
+  }
+
   /// Adds a recipe for testing.
   void addRecipeForTesting(Recipe recipe) {
     _recipes.add(recipe);

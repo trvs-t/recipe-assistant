@@ -61,6 +61,11 @@ class MockRecipeRepository implements IRecipeRepository {
     _recipes.remove(id);
   }
 
+  @override
+  Future<Recipe> createRecipeFromText(String text) async {
+    throw UnimplementedError();
+  }
+
   void dispose() {
     for (final controller in _recipeControllers.values) {
       controller.close();

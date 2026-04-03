@@ -4,11 +4,14 @@ import 'package:app/core/errors/exceptions.dart';
 void main() {
   group('ErrorCode', () {
     test('should have all required values', () {
-      expect(ErrorCode.values.length, equals(4));
+      expect(ErrorCode.values.length, equals(7));
       expect(ErrorCode.values, contains(ErrorCode.invalidUrl));
       expect(ErrorCode.values, contains(ErrorCode.fetchFailed));
       expect(ErrorCode.values, contains(ErrorCode.parseFailed));
       expect(ErrorCode.values, contains(ErrorCode.rateLimit));
+      expect(ErrorCode.values, contains(ErrorCode.textTooShort));
+      expect(ErrorCode.values, contains(ErrorCode.textTooLong));
+      expect(ErrorCode.values, contains(ErrorCode.urlDetectedInText));
     });
   });
 
@@ -128,6 +131,16 @@ void main() {
       );
     });
 
+    test('should create exception with error code', () {
+      const exception = ValidationException(
+        message: 'Text is too short',
+        errorCode: ErrorCode.textTooShort,
+      );
+
+      expect(exception.message, equals('Text is too short'));
+      expect(exception.errorCode, equals(ErrorCode.textTooShort));
+    });
+
     test('toString should include message', () {
       const exception = ValidationException(message: 'Invalid URL format');
 
@@ -135,6 +148,34 @@ void main() {
         exception.toString(),
         equals('ValidationException: Invalid URL format'),
       );
+    });
+
+    test('toString should include error code when provided', () {
+      const exception = ValidationException(
+        message: 'Invalid text',
+        errorCode: ErrorCode.urlDetectedInText,
+      );
+
+      expect(
+        exception.toString(),
+        equals(
+          'ValidationException: Invalid text (code: ErrorCode.urlDetectedInText)',
+        ),
+      );
+    });
+
+    test('should work with new text error codes', () {
+      for (final code in [
+        ErrorCode.textTooShort,
+        ErrorCode.textTooLong,
+        ErrorCode.urlDetectedInText,
+      ]) {
+        final exception = ValidationException(
+          message: 'Test message',
+          errorCode: code,
+        );
+        expect(exception.errorCode, equals(code));
+      }
     });
   });
 
