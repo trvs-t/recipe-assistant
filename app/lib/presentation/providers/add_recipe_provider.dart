@@ -1,8 +1,10 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:app/core/errors/exceptions.dart';
+import 'package:app/data/models/manual_recipe_input.dart';
 import 'package:app/data/models/recipe.dart';
 import 'package:app/data/repositories/i_recipe_repository.dart';
+import 'package:app/presentation/providers/manual_recipe_provider.dart';
 import 'package:app/presentation/providers/providers.dart';
 
 part 'add_recipe_provider.g.dart';
@@ -14,6 +16,9 @@ enum AddRecipeInputMode {
 
   /// Direct text input mode.
   text,
+
+  /// Manual entry mode.
+  manual,
 }
 
 /// Error codes for add recipe failures.
@@ -260,9 +265,13 @@ class AddRecipe extends _$AddRecipe {
   ///
   /// Routes to the appropriate repository method based on input mode.
   /// Updates state throughout the workflow: fetching -> parsing -> success/error.
+  /// Note: Manual mode is handled by ManualRecipeForm internally.
   Future<void> submit() async {
     if (state.inputMode == AddRecipeInputMode.text) {
       await _submitText();
+    } else if (state.inputMode == AddRecipeInputMode.manual) {
+      // Manual mode is handled by ManualRecipeForm - this should not be called
+      return;
     } else {
       await _submitUrl();
     }
@@ -402,6 +411,60 @@ class AddRecipe extends _$AddRecipe {
         errorCode: AddRecipeErrorCode.unknown,
         errorMessage: 'An unexpected error occurred. Please try again.',
       );
+    }
+  }
+
+  /// Submits a manually created recipe.
+  Future<Recipe?> submitManual() async {
+    final manualState = ref.read(manualRecipeProvider);
+
+    // Validate manual form state
+    if (manualState.title.trim().isEmpty ||
+        manualState.ingredients.isEmpty ||
+        manualState.instructions.isEmpty) {
+      state = state.copyWith(
+        status: AddRecipeStatus.error,
+        errorCode: AddRecipeErrorCode.unknown,
+        errorMessage: 'Please fill in all required fields',
+      );
+      return null;
+    }
+
+    // Start submitting
+    state = state.copyWith(status: AddRecipeStatus.parsing, errorMessage: '');
+
+    try {
+      // Convert StepInput list to String list
+      final instructionStrings = manualState.instructions
+          .map((step) => step.instruction)
+          .toList();
+
+      // Create manual recipe input
+      final input = ManualRecipeInput(
+        title: manualState.title.trim(),
+        ingredients: manualState.ingredients,
+        instructions: instructionStrings,
+      );
+
+      // Call repository to create manual recipe
+      final recipe = await _repository.createManualRecipe(input);
+
+      state = state.copyWith(status: AddRecipeStatus.success, result: recipe);
+      return recipe;
+    } on DatabaseException {
+      state = state.copyWith(
+        status: AddRecipeStatus.error,
+        errorCode: AddRecipeErrorCode.unknown,
+        errorMessage: 'Failed to save recipe. Please try again.',
+      );
+      return null;
+    } catch (e) {
+      state = state.copyWith(
+        status: AddRecipeStatus.error,
+        errorCode: AddRecipeErrorCode.unknown,
+        errorMessage: 'An unexpected error occurred. Please try again.',
+      );
+      return null;
     }
   }
 

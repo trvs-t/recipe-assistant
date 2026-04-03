@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import 'package:app/config/router.dart';
 import 'package:app/presentation/providers/add_recipe_provider.dart';
+import 'package:app/presentation/providers/manual_recipe_provider.dart';
+import 'package:app/presentation/widgets/manual_recipe_form.dart';
 
 /// Page for adding a new recipe via URL
 class AddRecipePage extends ConsumerStatefulWidget {
@@ -68,11 +70,20 @@ class _AddRecipePageState extends ConsumerState<AddRecipePage> {
   Widget build(BuildContext context) {
     final state = ref.watch(addRecipeProvider);
 
-    // Navigate to recipe detail on success
+    // Navigate to recipe detail on success for URL/Text mode
     ref.listen(addRecipeProvider, (previous, current) {
       if (current.status == AddRecipeStatus.success &&
           current.result != null &&
           (previous?.status != AddRecipeStatus.success)) {
+        _onViewRecipe(current.result!.id);
+      }
+    });
+
+    // Navigate to recipe detail on success for manual mode
+    ref.listen(manualRecipeProvider, (previous, current) {
+      if (current.status == ManualRecipeStatus.success &&
+          current.result != null &&
+          (previous?.status != ManualRecipeStatus.success)) {
         _onViewRecipe(current.result!.id);
       }
     });
@@ -87,9 +98,12 @@ class _AddRecipePageState extends ConsumerState<AddRecipePage> {
 
     // Determine if form is valid based on input mode
     final isUrlMode = state.inputMode == AddRecipeInputMode.url;
+    final isTextMode = state.inputMode == AddRecipeInputMode.text;
+    final isManualMode = state.inputMode == AddRecipeInputMode.manual;
     final isFormValid = isUrlMode
         ? (state.status != AddRecipeStatus.invalidUrl && state.url.isNotEmpty)
-        : (state.status != AddRecipeStatus.error &&
+        : (isTextMode &&
+              state.status != AddRecipeStatus.error &&
               state.textValue.length >= minTextLength &&
               state.textValue.length <= maxTextLength);
 
@@ -116,6 +130,11 @@ class _AddRecipePageState extends ConsumerState<AddRecipePage> {
                   label: Text('From Text'),
                   icon: Icon(Icons.text_fields),
                 ),
+                ButtonSegment<AddRecipeInputMode>(
+                  value: AddRecipeInputMode.manual,
+                  label: Text('Manual Entry'),
+                  icon: Icon(Icons.edit),
+                ),
               ],
               selected: {state.inputMode},
               onSelectionChanged: (selection) {
@@ -129,20 +148,24 @@ class _AddRecipePageState extends ConsumerState<AddRecipePage> {
             // Input Field based on mode
             if (isUrlMode)
               _buildUrlInput(state, isLoading)
-            else
-              _buildTextInput(state, isLoading),
+            else if (isTextMode)
+              _buildTextInput(state, isLoading)
+            else if (isManualMode)
+              const ManualRecipeForm(),
 
             const SizedBox(height: 24),
 
-            // Submit Button or Loading
-            if (isLoading)
-              _buildLoadingState(state.status)
-            else if (state.status == AddRecipeStatus.success)
-              _buildSuccessState(state.result?.id)
-            else if (state.status == AddRecipeStatus.error)
-              _buildErrorState(state, showRetry)
-            else
-              _buildSubmitButton(isFormValid, !isUrlMode),
+            // Submit Button or Loading (hidden for manual mode)
+            if (!isManualMode) ...[
+              if (isLoading)
+                _buildLoadingState(state.status)
+              else if (state.status == AddRecipeStatus.success)
+                _buildSuccessState(state.result?.id)
+              else if (state.status == AddRecipeStatus.error)
+                _buildErrorState(state, showRetry)
+              else
+                _buildSubmitButton(isFormValid, isTextMode),
+            ],
           ],
         ),
       ),

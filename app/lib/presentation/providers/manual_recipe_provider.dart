@@ -1,7 +1,9 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:app/data/models/ingredient_input.dart';
+import 'package:app/data/models/manual_recipe_input.dart';
 import 'package:app/data/models/recipe.dart';
+import 'package:app/presentation/providers/providers.dart';
 
 part 'manual_recipe_provider.g.dart';
 
@@ -181,11 +183,29 @@ class ManualRecipe extends _$ManualRecipe {
       errorMessage: '',
     );
 
-    await Future<void>.delayed(const Duration(milliseconds: 500));
+    try {
+      final repository = ref.read(recipeRepositoryProvider);
+      final input = ManualRecipeInput(
+        title: state.title.trim(),
+        ingredients: state.ingredients,
+        instructions: state.instructions.map((s) => s.instruction).toList(),
+      );
+      final recipe = await repository.createManualRecipe(input);
 
-    if (!ref.mounted) return;
+      if (!ref.mounted) return;
 
-    state = state.copyWith(status: ManualRecipeStatus.success, result: null);
+      state = state.copyWith(
+        status: ManualRecipeStatus.success,
+        result: recipe,
+      );
+    } catch (e) {
+      if (!ref.mounted) return;
+
+      state = state.copyWith(
+        status: ManualRecipeStatus.error,
+        errorMessage: 'Failed to save recipe: ${e.toString()}',
+      );
+    }
   }
 
   void reset() {
