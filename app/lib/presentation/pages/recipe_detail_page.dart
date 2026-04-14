@@ -20,9 +20,10 @@ class RecipeDetailPage extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: recipeAsync.maybeWhen(
+        title: recipeAsync.when(
           data: (recipe) => Text(recipe.title),
-          orElse: () => const Text('Recipe Details'),
+          loading: () => const Text('Recipe Details'),
+          error: (error, stack) => const Text('Recipe Details'),
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),

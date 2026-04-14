@@ -5,16 +5,19 @@ import 'package:app/presentation/providers/providers.dart';
 
 part 'recipe_detail_provider.g.dart';
 
-/// Watches a recipe by ID for real-time updates.
+/// Disables retry for recipe detail fetches since 404 is a valid "not found" state.
+Duration? _noRetry(int retryCount, Object error) => null;
+
+/// Fetches a recipe by ID.
 ///
-/// Uses Supabase Realtime to stream changes when the recipe is updated.
 /// Returns an [AsyncValue<Recipe>] that handles loading, error, and data states.
-@riverpod
+/// Retry is disabled since "not found" is a valid end state, not a transient error.
+@Riverpod(retry: _noRetry)
 class RecipeDetail extends _$RecipeDetail {
   @override
-  Stream<Recipe> build(String id) {
+  Future<Recipe> build(String id) async {
     final repository = ref.watch(recipeRepositoryProvider);
-    return repository.watchRecipe(id);
+    return repository.getRecipe(id);
   }
 }
 
