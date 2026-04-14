@@ -5,7 +5,21 @@ import { resolve } from 'https://deno.land/std@0.168.0/path/mod.ts'
 const envPath = resolve(Deno.cwd(), '..', '.env')
 await configAsync({ export: true, path: envPath })
 
-import { parseWithOpenRouter } from './index.ts'
+import { parseWithOpenRouter, hasRecipeJsonLd, hasRecipePatterns, extractRecipeContent } from './index.ts'
+
+const BROWSER_HEADERS: Record<string, string> = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+  'Accept-Language': 'en-GB,en;q=0.9,en-US;q=0.8',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Sec-Fetch-User': '?1',
+  'Cache-Control': 'no-cache',
+  'Pragma': 'no-cache',
+  'Upgrade-Insecure-Requests': '1',
+}
 
 Deno.test({
   name: 'parseWithOpenRouter integration: parses simple recipe content',
@@ -17,32 +31,31 @@ Deno.test({
     }
 
     const recipeContent = `
-    Chicken Tikka Masala
+    Chocolate Chip Cookies
     
     Ingredients:
-    - 500g chicken breast, cut into cubes
-    - 1 cup yogurt
-    - 2 tbsp tikka masala paste
-    - 1 can coconut milk
-    - 1 onion, diced
-    - 2 cloves garlic, minced
+    - 2 cups all-purpose flour
+    - 1 cup butter, softened
+    - 3/4 cup sugar
+    - 2 eggs
+    - 2 cups chocolate chips
     
     Instructions:
-    1. Marinate chicken in yogurt and tikka paste for 2 hours
-    2. Grill or bake chicken until cooked through
-    3. Sauté onion and garlic, add coconut milk and simmer
-    4. Add cooked chicken and simmer for 10 minutes
-    5. Serve with rice or naan bread
+    1. Preheat oven to 375F
+    2. Mix flour, butter, sugar, and eggs
+    3. Fold in chocolate chips
+    4. Drop spoonfuls onto baking sheet
+    5. Bake for 10-12 minutes
     
-    Serves: 4
-    Prep time: 30 minutes
-    Cook time: 25 minutes
+    Serves: 24 cookies
+    Prep time: 15 minutes
+    Cook time: 12 minutes
     `
 
     const result = await parseWithOpenRouter(recipeContent)
     
     assertExists(result.title)
-    assertStringIncludes(result.title.toLowerCase(), 'chicken')
+    assertStringIncludes(result.title.toLowerCase(), 'chocolate')
     assertEquals(Array.isArray(result.ingredients), true)
     assertEquals(Array.isArray(result.steps), true)
   },
@@ -51,7 +64,7 @@ Deno.test({
 })
 
 Deno.test({
-  name: 'parseWithOpenRouter integration: parses real BBC Good Food recipe',
+  name: 'parseWithOpenRouter integration: parses real BBC Good Food recipe with BROWSER_HEADERS',
   fn: async () => {
     const apiKey = Deno.env.get('OPENROUTER_API_KEY')
     if (!apiKey) {
@@ -60,7 +73,7 @@ Deno.test({
     }
 
     const response = await fetch('https://www.bbcgoodfood.com/recipes/chicken-tikka-masala', {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)' },
+      headers: BROWSER_HEADERS,
     })
     
     if (!response.ok) {
@@ -70,26 +83,20 @@ Deno.test({
     
     const html = await response.text()
     
-    const jsonLdMatch = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i)
-    let content = ''
+    assertEquals(hasRecipeJsonLd(html), true, 'BBC Good Food should have JSON-LD recipe data')
+    assertEquals(hasRecipePatterns(html), true, 'BBC Good Food should have recipe patterns')
     
-    if (jsonLdMatch) {
-      try {
-        const jsonLd = JSON.parse(jsonLdMatch[1])
-        content = JSON.stringify(jsonLd)
-      } catch {
-        content = html.substring(0, 15000)
-      }
-    } else {
-      content = html.substring(0, 15000)
-    }
-
+    const content = extractRecipeContent(html)
+    assertEquals(content.length > 0, true, 'Should extract recipe content')
+    
     const result = await parseWithOpenRouter(content)
     
     assertExists(result.title)
     assertEquals(result.title.length > 0, true)
     assertEquals(Array.isArray(result.ingredients), true)
+    assertEquals(result.ingredients.length > 0, true, 'Should have ingredients')
     assertEquals(Array.isArray(result.steps), true)
+    assertEquals(result.steps.length > 0, true, 'Should have steps')
     
     console.log(`Parsed recipe: "${result.title}" with ${result.ingredients.length} ingredients and ${result.steps.length} steps`)
   },
@@ -111,6 +118,20 @@ Deno.test({
     assertExists(result.title)
     assertEquals(Array.isArray(result.ingredients), true)
     assertEquals(Array.isArray(result.steps), true)
+  },
+  sanitizeOps: false,
+  sanitizeResources: false,
+})
+
+Deno.test({
+  name: 'BBC Good Food fetch with BROWSER_HEADERS returns 200',
+  fn: async () => {
+    const response = await fetch('https://www.bbcgoodfood.com/recipes/chicken-tikka-masala', {
+      headers: BROWSER_HEADERS,
+    })
+    
+    assertEquals(response.ok, true, `BBC Good Food should be accessible, got ${response.status}`)
+    assertEquals(response.headers.get('content-type')?.includes('text/html'), true)
   },
   sanitizeOps: false,
   sanitizeResources: false,

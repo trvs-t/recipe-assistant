@@ -13,6 +13,21 @@ const RETRY_DELAYS_MS = [1000, 2000]
 const MIN_TEXT_LENGTH = 50
 const MAX_TEXT_LENGTH = 10000
 
+// Browser-like headers to avoid 403 bot detection on sites like BBC Good Food
+const BROWSER_HEADERS: Record<string, string> = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+  'Accept-Language': 'en-GB,en;q=0.9,en-US;q=0.8',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Sec-Fetch-User': '?1',
+  'Cache-Control': 'no-cache',
+  'Pragma': 'no-cache',
+  'Upgrade-Insecure-Requests': '1',
+}
+
 interface TextValidationResult {
   valid: boolean
   reason?: string
@@ -155,9 +170,7 @@ async function checkPaywallInHtml(url: string): Promise<boolean> {
   try {
     const response = await fetch(url, {
       method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)',
-      },
+      headers: BROWSER_HEADERS,
     })
 
     const reader = response.body?.getReader()
@@ -205,7 +218,7 @@ async function checkPaywallInHtml(url: string): Promise<boolean> {
   }
 }
 
-function hasRecipeJsonLd(html: string): boolean {
+export function hasRecipeJsonLd(html: string): boolean {
   const jsonLdPattern = /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi
   const matches = html.match(jsonLdPattern) || []
   
@@ -234,7 +247,7 @@ function hasRecipeJsonLd(html: string): boolean {
   return false
 }
 
-function hasRecipePatterns(html: string): boolean {
+export function hasRecipePatterns(html: string): boolean {
   const patterns = [
     /<[^>]*class="[^"]*recipe/i,
     /<[^>]*itemtype="https?:\/\/schema\.org\/Recipe"/i,
@@ -308,7 +321,7 @@ function findRecipeInJsonLd(data: unknown): unknown | null {
   return null
 }
 
-function extractRecipeContent(html: string): string {
+export function extractRecipeContent(html: string): string {
   const jsonLdMatch = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i)
   if (jsonLdMatch) {
     try {
@@ -371,27 +384,16 @@ export async function parseWithOpenRouter(content: string): Promise<{
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'qwen/qwen3.6-plus-preview:free',
+        model: 'google/gemma-3-4b-it:free',
         max_tokens: 2048,
         messages: [
           {
-            role: 'system',
-            content: `You are a recipe parsing assistant. Extract structured recipe data from the provided content.
-IMPORTANT: You MUST respond with ONLY a valid JSON object, no other text.
-Schema:
-{
-  "title": "Recipe name (string, required)",
-  "ingredients": ["ingredient with quantity and unit (string, required)"],
-  "steps": ["step instruction (string, required)"],
-  "servings": number (optional),
-  "prep_time_minutes": number (optional),
-  "cook_time_minutes": number (optional)
-}
-Never deviate from this schema. Always include title, ingredients array, and steps array.`,
-          },
-          {
             role: 'user',
-            content: `Extract the recipe from this content:\n\n${content}`,
+            content: `You are a recipe parsing assistant. Extract structured recipe data from the provided content. IMPORTANT: You MUST respond with ONLY a valid JSON object, no other text. Schema: {"title": "Recipe name (string, required)", "ingredients": ["ingredient with quantity and unit (string, required)"], "steps": ["step instruction (string, required)"], "servings": number (optional), "prep_time_minutes": number (optional), "cook_time_minutes": number (optional)}. Never deviate from this schema.
+
+Extract the recipe from this content:
+
+${content}`,
           },
         ],
       }),
@@ -440,14 +442,17 @@ Never deviate from this schema. Always include title, ingredients array, and ste
 
 async function detectRecipeContent(url: string): Promise<boolean> {
   try {
+    console.log(`[detectRecipeContent] Fetching URL: ${url}`)
     const response = await fetch(url, {
       method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)',
-      },
+      headers: BROWSER_HEADERS,
     })
 
-    if (!response.ok) return false
+    console.log(`[detectRecipeContent] Response status: ${response.status}`)
+    if (!response.ok) {
+      console.log(`[detectRecipeContent] Non-OK response, returning false`)
+      return false
+    }
 
     const reader = response.body?.getReader()
     if (!reader) return false
@@ -455,7 +460,7 @@ async function detectRecipeContent(url: string): Promise<boolean> {
     const decoder = new TextDecoder()
     let content = ''
     let received = 0
-    const maxBytes = 16384
+    const maxBytes = 32768
 
     while (received < maxBytes) {
       const { done, value } = await reader.read()
@@ -465,11 +470,13 @@ async function detectRecipeContent(url: string): Promise<boolean> {
       received += value.length
 
       if (hasRecipeJsonLd(content)) {
+        console.log(`[detectRecipeContent] Found JSON-LD recipe!`)
         reader.cancel()
         return true
       }
 
       if (hasRecipePatterns(content)) {
+        console.log(`[detectRecipeContent] Found recipe patterns!`)
         reader.cancel()
         return true
       }
@@ -480,9 +487,11 @@ async function detectRecipeContent(url: string): Promise<boolean> {
       }
     }
 
+    console.log(`[detectRecipeContent] Scanned ${received} bytes, no recipe detected`)
     reader.cancel()
     return false
-  } catch {
+  } catch (error) {
+    console.log(`[detectRecipeContent] Error: ${error}`)
     return false
   }
 }
@@ -495,9 +504,7 @@ async function validateUrl(url: string): Promise<{ valid: boolean; reason?: stri
   try {
     const response = await fetch(url, {
       method: 'HEAD',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)',
-      },
+      headers: BROWSER_HEADERS,
       redirect: 'follow',
     })
 
@@ -558,10 +565,7 @@ async function processRecipeAsync(recipeId: string, url: string, sourceText?: st
     } else {
       console.log(`[BACKGROUND] Step 2: Fetching URL ${url}`)
       const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; RecipeAssistant/1.0; +https://example.com/bot)',
-          'Accept': 'text/html,application/xhtml+xml',
-        },
+        headers: BROWSER_HEADERS,
         signal: AbortSignal.timeout(15000),
       })
 
