@@ -233,6 +233,43 @@ try {
 - **Branch:** `feature/description` or `fix/description`
 - **Never commit:** Generated files (`*.g.dart`, `*.freezed.dart`), `.env` files
 
+## Debugging Methodology
+
+When facing bugs, follow this approach:
+
+### 1. Write Failing Test First
+Create a test that **exposes the bug** and prints diagnostic info:
+```dart
+testWidgets('BUG EXPOSED: issue description', (tester) async {
+  // Setup bug reproduction
+  await tester.pumpWidget(...);
+  // Assert the bug manifestation
+  expect(buggyBehavior, isTrue, reason: 'BUG CONFIRMED: ...');
+});
+```
+
+### 2. Consult Librarian for Unfamiliar Issues
+For framework/library behavior you don't understand:
+```bash
+task(subagent_type="librarian", load_skills=[], prompt="
+CONTEXT: [what you're trying to do]
+GOAL: [what decision/action the results will unblock]
+Find: [specific patterns/examples from official docs or OSS]
+")
+```
+Key triggers: async behavior, retry logic, unfamiliar library APIs.
+
+### 3. Fix Based on Evidence
+- Use test output and console errors to identify root cause
+- Librarian research provides idiomatic patterns
+- Make minimal changes to fix the bug
+
+### Example Flow
+1. Bug: "skeleton shows forever" → Write test exposing infinite loading
+2. Research: Librarian reveals Riverpod 3.x auto-retries by default
+3. Fix: Add `@Riverpod(retry: _noRetry)` to disable retry for this provider
+4. Test: Verify error state now appears for missing recipes
+
 ## Common Tasks
 
 | Task | Location |
