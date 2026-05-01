@@ -4,6 +4,7 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 const ENV_SUPABASE_URL = "SUPABASE_URL";
 const ENV_SERVICE_ROLE_KEY = "SUPABASE_SERVICE_ROLE_KEY";
 const ENV_OPENROUTER_KEY = "OPENROUTER_API_KEY";
+const ENV_ENVIRONMENT = "ENVIRONMENT";
 
 // Local Supabase defaults (for `supabase start`)
 const LOCAL_SUPABASE_URL = "http://127.0.0.1:54321";
@@ -233,6 +234,27 @@ Instructions:
 ];
 
 function validateEnvVars(): { supabaseUrl: string; serviceRoleKey: string; openRouterKey: string } {
+  if (Deno.env.get(ENV_ENVIRONMENT) === "local") {
+    log("ℹ️ ENVIRONMENT=local detected, loading .env file...", "info");
+    try {
+      const envFile = Deno.readTextFileSync(".env");
+      for (const line of envFile.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const eqIndex = trimmed.indexOf("=");
+        if (eqIndex < 0) continue;
+        const key = trimmed.slice(0, eqIndex).trim();
+        const value = trimmed.slice(eqIndex + 1).trim();
+        if (value && !Deno.env.get(key)) {
+          Deno.env.set(key, value);
+        }
+      }
+      log("ℹ️ .env loaded", "info");
+    } catch {
+      log("⚠️ No .env file found, using defaults", "warning");
+    }
+  }
+
   const supabaseUrl = Deno.env.get(ENV_SUPABASE_URL) ?? LOCAL_SUPABASE_URL;
   const serviceRoleKey = Deno.env.get(ENV_SERVICE_ROLE_KEY) ?? LOCAL_SERVICE_ROLE_KEY;
   const openRouterKey = Deno.env.get(ENV_OPENROUTER_KEY);
