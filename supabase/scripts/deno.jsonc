@@ -1,0 +1,8 @@
+{
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@^2"
+  },
+  "tasks": {
+    "seed": "deno run --allow-net --allow-env --allow-read seed-recipes.ts"
+  }
+}
