@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-primary: var(--primary);
+  --color-accent: var(--accent);
+}
+
+:root {
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  color: var(--foreground);
+  background: var(--background);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+
+  --background: #f7f4ed;
+  --background-subtle: #f2eee5;
+  --foreground: #25231f;
+  --ink: #20231f;
+  --card: #fffdf8;
+  --card-muted: #fbf9f3;
+  --card-foreground: #25231f;
+  --muted: #eeeae0;
+  --muted-foreground: #746f64;
+  --border: #e5dfd3;
+  --border-strong: #cfc6b7;
+  --primary: #bb5d39;
+  --primary-hover: #a94e2e;
+  --primary-foreground: #fffaf3;
+  --primary-soft: #f5ded3;
+  --secondary: #e5ecdf;
+  --secondary-hover: #d8e2d1;
+  --secondary-foreground: #466044;
+  --accent: #e9bb68;
+  --accent-light: #f6d89e;
+  --success: #4d7d52;
+  --success-soft: #e3efdf;
+  --warning: #9b6b25;
+  --warning-soft: #f8ecd0;
+  --destructive: #b5443d;
+  --ring: #bb5d39;
+  --shadow-card: 0 8px 24px rgb(38 31 22 / 0.05);
+  --shadow-card-hover: 0 18px 38px rgb(38 31 22 / 0.1);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  min-width: 320px;
+  background: var(--background);
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at 12% 0%, rgb(255 255 255 / 0.7), transparent 28rem),
+    var(--background);
+}
+
+button,
+a,
+input,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  color: var(--primary-foreground);
+  background: var(--primary);
+}

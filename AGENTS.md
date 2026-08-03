@@ -4,15 +4,36 @@ Guide for AI agents working on the Recipe Assistant codebase.
 
 ## Tech Stack
 
-- **Frontend:** Flutter 3.41.x + Riverpod 3.x (with code generation)
+- **Primary Frontend:** React 19 + TypeScript + Vite, TanStack Router, TanStack Query, Tailwind, shadcn/ui
+- **Recipe Flow:** React Flow + Dagre with a deterministic linear fallback
+- **Legacy Frontend:** Flutter 3.41.x + Riverpod 3.x (reference only during the web restart)
 - **Backend:** Supabase (PostgreSQL, Auth, Storage, Edge Functions)
-- **Local DB:** Drift 2.x (SQLite) for offline-first
+- **Legacy Local DB:** Drift 2.x (SQLite); no local-data migration is required for the web restart
 - **Serverless:** Deno TypeScript Edge Functions
-- **AI:** OpenRouter API for recipe parsing (free tier: `qwen/qwen3.6-plus-preview:free`)
+- **AI:** OpenRouter API with an explicit `OPENROUTER_MODEL`; evaluate a pinned model before production rollout
 
 ## Build & Test Commands
 
-### Flutter
+### Web
+```bash
+# Install all web/shared dependencies
+pnpm install
+
+# Type check, test, and build the web app
+pnpm web:typecheck
+pnpm web:test
+pnpm web:test:e2e
+pnpm web:build
+
+# Run the web app locally
+pnpm web:dev
+
+# Verify shared recipe/import/flow contracts
+pnpm contract:typecheck
+pnpm contract:test
+```
+
+### Legacy Flutter
 ```bash
 # Type check (ALWAYS use this, never flutter build for type checking)
 cd app && dart analyze
@@ -157,6 +178,14 @@ try {
 ## Project Structure
 
 ```
+apps/
+└── web/                              # Primary React web application
+    └── src/
+        ├── routes/                   # TanStack Router file routes
+        ├── features/                 # Recipe and import features
+        └── components/               # shadcn-style and domain UI
+packages/
+└── recipe-contract/                  # Canonical Zod/TypeScript contracts
 app/
 ├── lib/
 │   ├── main.dart                    # Entry point with ProviderScope
@@ -181,6 +210,7 @@ app/
 
 supabase/
 ├── functions/                      # Edge Functions (Deno)
+│   ├── import-recipe-v2/          # Durable queue-based importer
 │   ├── import-recipe/             # Consolidated import endpoint
 │   │   ├── index.ts               # Main handler
 │   │   ├── test.ts                # Unit tests
@@ -192,12 +222,13 @@ supabase/
 
 ## Key Conventions
 
-1. **Offline-First:** Local DB first, then sync to Supabase
+1. **Primary Surface:** New product work targets `apps/web`; do not extend Flutter unless explicitly requested
 2. **RLS:** Every user-data table MUST have Row Level Security
-3. **Status Field:** Recipes have status: `pending` → `parsing` → `parsed` | `error` | `draft`
+3. **Durable Imports:** Queue jobs must reach `completed`, `needs_input`, `failed`, or a bounded `retry_wait`; never depend on `waitUntil` for durability
 4. **Scaling Formula:** `new = original × (desired / original_servings)`
-5. **Code Generation:** Use `riverpod_annotation` + `riverpod_generator` (NOT legacy providers)
-6. **Import Recipe Flow:** Single endpoint `import-recipe` handles validation, detection, and parsing
+5. **Source Traceability:** URL imports always retain `source_url`, and recipe detail exposes an external source link
+6. **Flow Fallback:** Invalid or absent enrichment must render a deterministic linear graph from ordered recipe steps
+7. **Legacy Code Generation:** If Flutter changes are explicitly requested, use `riverpod_annotation` + `riverpod_generator`
 
 ## Error Handling
 

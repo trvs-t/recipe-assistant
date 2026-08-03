@@ -1,0 +1,420 @@
+import { PipelineError } from "./errors.ts";
+import { normalizeRecipeDraft } from "./ai-normalizer.ts";
+import {
+  type AiNormalizationAdapter,
+  type AiNormalizationInput,
+  type NormalizedRecipeDraft,
+} from "./types.ts";
+
+export const RECOMMENDED_OPENROUTER_MODEL: string = "qwen/qwen3.6-plus";
+export const OPENROUTER_ENDPOINT: string =
+  "https://openrouter.ai/api/v1/chat/completions";
+export const OPENROUTER_TIMEOUT_MS: number = 20_000;
+
+export interface OpenRouterTransport {
+  fetch(input: string, init: RequestInit): Promise<Response>;
+}
+
+export const defaultOpenRouterTransport: OpenRouterTransport = {
+  fetch(input: string, init: RequestInit): Promise<Response> {
+    return fetch(input, init);
+  },
+};
+
+export interface OpenRouterNormalizerOptions {
+  readonly api_key: string;
+  readonly model: string;
+  readonly endpoint?: string;
+  readonly timeout_ms?: number;
+  readonly max_tokens?: number;
+  readonly transport?: OpenRouterTransport;
+  readonly site_url?: string;
+  readonly site_name?: string;
+}
+
+export class OpenRouterNormalizer implements AiNormalizationAdapter {
+  private readonly api_key: string;
+  private readonly model: string;
+  private readonly endpoint: string;
+  private readonly timeout_ms: number;
+  private readonly max_tokens: number;
+  private readonly transport: OpenRouterTransport;
+  private readonly site_url: string | undefined;
+  private readonly site_name: string | undefined;
+
+  constructor(options: OpenRouterNormalizerOptions) {
+    this.api_key = options.api_key.trim();
+    this.model = options.model.trim();
+    this.endpoint = options.endpoint ?? OPENROUTER_ENDPOINT;
+    this.timeout_ms = positiveInteger(
+      options.timeout_ms,
+      OPENROUTER_TIMEOUT_MS,
+    );
+    this.max_tokens = positiveInteger(options.max_tokens, 4096);
+    this.transport = options.transport ?? defaultOpenRouterTransport;
+    this.site_url = options.site_url;
+    this.site_name = options.site_name;
+
+    if (this.api_key.length === 0) {
+      throw new Error("OPENROUTER_API_KEY is required");
+    }
+    if (this.model.length === 0) {
+      throw new Error("OPENROUTER_MODEL is required");
+    }
+  }
+
+  async normalize(input: AiNormalizationInput): Promise<NormalizedRecipeDraft> {
+    const response: Response = await this.request(input);
+    const responseText: string = await readResponseText(response);
+    const responseBody: unknown = parseResponseJson(responseText);
+    const content: string = extractMessageContent(responseBody);
+    let normalizedOutput: unknown;
+    try {
+      normalizedOutput = JSON.parse(content);
+    } catch {
+      throw new PipelineError({
+        code: "RECIPE_OUTPUT_INVALID",
+        message: "OpenRouter returned content that is not strict JSON",
+        stage: "normalize",
+        retryable: false,
+      });
+    }
+
+    return normalizeRecipeDraft(normalizedOutput, input.source_url);
+  }
+
+  private async request(input: AiNormalizationInput): Promise<Response> {
+    const controller: AbortController = new AbortController();
+    const headers: Record<string, string> = {
+      authorization: `Bearer ${this.api_key}`,
+      "content-type": "application/json",
+    };
+    if (this.site_url !== undefined && this.site_url.trim().length > 0) {
+      headers["http-referer"] = this.site_url;
+    }
+    if (this.site_name !== undefined && this.site_name.trim().length > 0) {
+      headers["x-title"] = this.site_name;
+    }
+
+    const body: Record<string, unknown> = {
+      model: this.model,
+      max_tokens: this.max_tokens,
+      temperature: 0,
+      provider: {
+        require_parameters: true,
+      },
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "recipe_normalization",
+          strict: true,
+          schema: RECIPE_NORMALIZATION_SCHEMA,
+        },
+      },
+      messages: [
+        {
+          role: "system",
+          content:
+            "Extract one recipe from the supplied source. Return only the requested JSON schema. Do not invent ingredients or steps. Use null when a scalar is unavailable.",
+        },
+        {
+          role: "user",
+          content: [
+            `Requested source URL: ${input.source_url}`,
+            `Resolved source URL: ${input.resolved_url}`,
+            "Recipe source content:",
+            input.content.slice(0, 60_000),
+          ].join("\n\n"),
+        },
+      ],
+    };
+
+    try {
+      const response: Response = await fetchWithTimeout(
+        this.transport,
+        this.endpoint,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        },
+        controller,
+        this.timeout_ms,
+      );
+
+      if (response.ok) {
+        return response;
+      }
+
+      const errorText: string = await readResponseText(response);
+      throw new PipelineError({
+        code: "AI_NORMALIZATION_FAILED",
+        message: `OpenRouter returned HTTP ${response.status}`,
+        stage: "normalize",
+        retryable: isRetryableStatus(response.status),
+        details: {
+          status: response.status,
+          reason: errorText.slice(0, 300),
+        },
+      });
+    } catch (error) {
+      if (error instanceof PipelineError) {
+        throw error;
+      }
+      throw new PipelineError({
+        code: "AI_NORMALIZATION_FAILED",
+        message: "OpenRouter could not be reached",
+        stage: "normalize",
+        retryable: true,
+        details: {
+          reason: error instanceof Error ? error.message : "AI request failed",
+        },
+      });
+    }
+  }
+}
+
+export function createOpenRouterNormalizerFromEnv(
+  env: EnvironmentReader = Deno.env,
+): AiNormalizationAdapter {
+  const api_key: string = requiredEnvironment(env, "OPENROUTER_API_KEY");
+  const model: string = requiredEnvironment(env, "OPENROUTER_MODEL");
+  const timeoutText: string | undefined = env.get("OPENROUTER_TIMEOUT_MS");
+  const timeout_ms: number | undefined = parseOptionalPositiveInteger(
+    timeoutText,
+  );
+  return new OpenRouterNormalizer({
+    api_key,
+    model,
+    timeout_ms,
+    site_url: env.get("OPENROUTER_SITE_URL"),
+    site_name: env.get("OPENROUTER_SITE_NAME"),
+  });
+}
+
+export interface EnvironmentReader {
+  get(name: string): string | undefined;
+}
+
+export const RECIPE_NORMALIZATION_SCHEMA: Readonly<Record<string, unknown>> = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "title",
+    "description",
+    "ingredients",
+    "steps",
+    "servings",
+    "prepTimeMinutes",
+    "cookTimeMinutes",
+    "totalTimeMinutes",
+    "images",
+    "cuisineType",
+    "dietaryTags",
+    "parseConfidence",
+    "status",
+  ],
+  properties: {
+    title: { type: "string", minLength: 1 },
+    description: { type: ["string", "null"] },
+    ingredients: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "id",
+          "originalText",
+          "quantity",
+          "unit",
+          "name",
+          "notes",
+          "sortOrder",
+        ],
+        properties: {
+          id: { type: "string", minLength: 1 },
+          originalText: { type: "string", minLength: 1 },
+          quantity: { type: ["number", "null"], exclusiveMinimum: 0 },
+          unit: { type: ["string", "null"] },
+          name: { type: "string", minLength: 1 },
+          notes: { type: ["string", "null"] },
+          sortOrder: { type: "integer", minimum: 0 },
+        },
+      },
+    },
+    steps: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id", "instruction", "timerDurationMinutes", "sortOrder"],
+        properties: {
+          id: { type: "string", minLength: 1 },
+          instruction: { type: "string", minLength: 1 },
+          timerDurationMinutes: {
+            type: ["integer", "null"],
+            exclusiveMinimum: 0,
+          },
+          sortOrder: { type: "integer", minimum: 0 },
+        },
+      },
+    },
+    servings: { type: ["integer", "null"], exclusiveMinimum: 0 },
+    prepTimeMinutes: { type: ["integer", "null"], minimum: 0 },
+    cookTimeMinutes: { type: ["integer", "null"], minimum: 0 },
+    totalTimeMinutes: { type: ["integer", "null"], minimum: 0 },
+    images: {
+      type: "array",
+      items: { type: "string", minLength: 1 },
+    },
+    cuisineType: { type: ["string", "null"] },
+    dietaryTags: {
+      type: "array",
+      items: { type: "string", minLength: 1 },
+    },
+    parseConfidence: {
+      type: ["number", "null"],
+      minimum: 0,
+      maximum: 1,
+    },
+    status: {
+      type: "string",
+      enum: ["draft", "ready", "needs_review"],
+    },
+  },
+};
+
+async function fetchWithTimeout(
+  transport: OpenRouterTransport,
+  endpoint: string,
+  init: RequestInit,
+  controller: AbortController,
+  timeout_ms: number,
+): Promise<Response> {
+  let timeout_id: ReturnType<typeof setTimeout> | undefined;
+  let didTimeout: boolean = false;
+  let timeoutError: PipelineError | undefined;
+  const timeout: Promise<Response> = new Promise<Response>(
+    (_resolve, reject): void => {
+      timeout_id = setTimeout((): void => {
+        didTimeout = true;
+        timeoutError = new PipelineError({
+          code: "AI_NORMALIZATION_FAILED",
+          message: "OpenRouter request exceeded its timeout",
+          stage: "normalize",
+          retryable: true,
+          details: { timeout_ms },
+        });
+        controller.abort();
+        reject(timeoutError);
+      }, timeout_ms);
+    },
+  );
+
+  try {
+    return await Promise.race([transport.fetch(endpoint, init), timeout]);
+  } catch (error) {
+    if (didTimeout && timeoutError !== undefined) {
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    if (timeout_id !== undefined) {
+      clearTimeout(timeout_id);
+    }
+  }
+}
+
+async function readResponseText(response: Response): Promise<string> {
+  try {
+    return (await response.text()).slice(0, 200_000);
+  } catch (error) {
+    throw new PipelineError({
+      code: "AI_NORMALIZATION_FAILED",
+      message: "OpenRouter returned an unreadable response",
+      stage: "normalize",
+      retryable: true,
+      details: {
+        reason: error instanceof Error
+          ? error.message
+          : "Response body read failed",
+      },
+    });
+  }
+}
+
+function parseResponseJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new PipelineError({
+      code: "AI_NORMALIZATION_FAILED",
+      message: "OpenRouter returned an invalid JSON response envelope",
+      stage: "normalize",
+      retryable: true,
+    });
+  }
+}
+
+function extractMessageContent(value: unknown): string {
+  if (!isRecord(value)) {
+    throw invalidAiResponse("OpenRouter response is not an object");
+  }
+  const choices: unknown = value["choices"];
+  if (!Array.isArray(choices) || choices.length === 0) {
+    throw invalidAiResponse("OpenRouter response did not contain a choice");
+  }
+  const firstChoice: unknown = choices[0];
+  if (!isRecord(firstChoice) || !isRecord(firstChoice["message"])) {
+    throw invalidAiResponse("OpenRouter response did not contain a message");
+  }
+  const content: unknown = firstChoice["message"]["content"];
+  if (typeof content !== "string" || content.trim().length === 0) {
+    throw invalidAiResponse("OpenRouter message content was empty or not text");
+  }
+  return content.trim();
+}
+
+function invalidAiResponse(message: string): PipelineError {
+  return new PipelineError({
+    code: "RECIPE_OUTPUT_INVALID",
+    message,
+    stage: "normalize",
+    retryable: false,
+  });
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+function positiveInteger(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isInteger(value) && value > 0
+    ? value
+    : fallback;
+}
+
+function parseOptionalPositiveInteger(
+  value: string | undefined,
+): number | undefined {
+  if (value === undefined || value.trim().length === 0) {
+    return undefined;
+  }
+  const parsed: number = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function requiredEnvironment(env: EnvironmentReader, name: string): string {
+  const value: string | undefined = env.get(name);
+  if (value === undefined || value.trim().length === 0) {
+    throw new Error(`${name} is required`);
+  }
+  return value.trim();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}

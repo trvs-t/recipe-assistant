@@ -1,0 +1,15 @@
+{
+  "name": "recipe-assistant",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "contract:typecheck": "pnpm --dir packages/recipe-contract typecheck",
+    "contract:test": "pnpm --dir packages/recipe-contract test",
+    "web:dev": "pnpm --dir apps/web dev",
+    "web:typecheck": "pnpm --dir apps/web typecheck",
+    "web:test": "pnpm --dir apps/web test",
+    "web:test:e2e": "pnpm --dir apps/web test:e2e",
+    "web:build": "pnpm --dir apps/web build"
+  }
+}

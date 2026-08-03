@@ -1,12 +1,17 @@
 # Recipe Assistant
 
-An offline-first Flutter app for saving, scaling, and cooking from online recipes. Save a recipe from any URL, adjust serving sizes with a tap, and follow step-by-step with voice navigation.
+A web-first recipe collector for reliable URL imports, portion adjustment, and
+recipe-as-flow visualization. The React application in `apps/web` is now the
+primary product surface; the Flutter application in `app` remains as legacy
+reference during the selective restart.
 
 ## Key Features
 
 - **Save from URL** - Paste any recipe link and have it parsed automatically
 - **AI-Powered Parsing** - Extracts ingredients, steps, and timings using OpenAI
 - **Serving Size Scaling** - Adjust recipes for more or fewer servings
+- **Recipe Flow** - Visualize ordered and parallel cooking steps as a directed graph
+- **Source Traceability** - Keep and open the original recipe URL
 - **Voice-Guided Cooking** - Navigate steps hands-free with voice commands
 - **Offline Support** - Recipes sync and work without internet
 
@@ -16,13 +21,13 @@ An offline-first Flutter app for saving, scaling, and cooking from online recipe
 
 | Technology | Purpose |
 |------------|---------|
-| Flutter 3.41.x | Cross-platform UI |
-| Dart 3.11.0 | Language |
-| Riverpod 3.x | State management |
-| GoRouter 17.x | Navigation |
-| Drift 2.x | SQLite local database |
-| Freezed | Immutable data classes |
-| supabase_flutter | Backend client |
+| React 19 + TypeScript | Primary web UI |
+| Vite | Development and production build |
+| TanStack Router | Typed file-based routing |
+| TanStack Query | Server-state fetching and import polling |
+| Tailwind + shadcn/ui | Styling and components |
+| React Flow + Dagre | Recipe flow visualization and layout |
+| Flutter + Riverpod | Legacy reference application |
 
 ### Backend
 
@@ -73,20 +78,25 @@ recipe-assistant/
 
 ### Prerequisites
 
-- Flutter 3.41.x or later
-- Dart 3.11.0 or later
+- Node.js 20+ and pnpm
+- Flutter 3.41.x and Dart 3.11.0 only for legacy app work
 - Supabase CLI
 - Node.js 18+ (for Supabase local development)
 
 ### Installation
 
-Clone the repository and install dependencies:
+Clone the repository and install web dependencies:
 
 ```bash
 cd recipe-assistant
-cd app
-flutter pub get
+pnpm install
+pnpm web:dev
 ```
+
+Install Chromium once with `pnpm --dir apps/web exec playwright install chromium`.
+Run the web and shared-contract gates with `pnpm web:typecheck`,
+`pnpm web:test`, `pnpm web:test:e2e`, `pnpm web:build`,
+`pnpm contract:typecheck`, and `pnpm contract:test`.
 
 ### Code Generation
 
