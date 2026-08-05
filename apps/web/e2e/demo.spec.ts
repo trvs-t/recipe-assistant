@@ -11,7 +11,7 @@ test('recipe detail keeps source traceability, scales portions, and renders the 
   await page.getByRole('link', { name: 'Miso butter salmon' }).click();
   await expect(page).toHaveURL(/\/recipes\/demo-miso-salmon$/);
   await expect(page.getByRole('heading', { name: 'Miso butter salmon' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Open source' })).toHaveAttribute(
+  await expect(page.getByRole('link', { name: 'justonecookbook.com' })).toHaveAttribute(
     'href',
     'https://www.justonecookbook.com/miso-salmon/',
   );

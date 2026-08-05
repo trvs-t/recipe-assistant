@@ -1,8 +1,10 @@
+import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import {
   buildRecipeFlowGraph,
   layoutRecipeFlow,
+  RecipeFlowDiagram,
   type RecipeFlowEdge,
   type RecipeFlowNode,
 } from './recipe-flow-diagram';
@@ -128,5 +130,30 @@ describe('recipe flow diagram helpers', (): void => {
     expect(graph.sourceLabel).toBe('example.com');
     expect(oilNode?.data.ingredientLabels).toEqual(['olive oil']);
     expect(graph.nodes.find((node: RecipeFlowNode): boolean => node.id === 'node-garlic')?.data.ingredientLabels).toEqual(['garlic']);
+  });
+});
+
+describe('RecipeFlowDiagram', (): void => {
+  it('shows fallback steps without rendering a redundant flow or empty ingredient labels', (): void => {
+    const fallbackRecipe: IRecipe = {
+      ...recipe,
+      steps: [
+        {
+          id: 'step-generic',
+          title: 'Step 1',
+          description: 'Mix the ingredients together.',
+          durationMinutes: null,
+        },
+      ],
+      flow: null,
+    };
+
+    render(<RecipeFlowDiagram recipe={fallbackRecipe} />);
+
+    expect(screen.queryByLabelText('Interactive recipe dependency flow')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Instructions' })).toBeInTheDocument();
+    expect(screen.getByText('Mix the ingredients together.')).toBeInTheDocument();
+    expect(screen.queryByText('Step 1')).not.toBeInTheDocument();
+    expect(screen.queryByText(/No linked ingredients/i)).not.toBeInTheDocument();
   });
 });

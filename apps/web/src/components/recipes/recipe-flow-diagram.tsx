@@ -327,6 +327,23 @@ export function RecipeFlowDiagram({ recipe }: IRecipeFlowDiagramProps): ReactEle
     graph.nodes.map((node: RecipeFlowNode): [string, string[]] => [node.id, node.data.ingredientLabels]),
   );
 
+  if (graph.usedFallback) {
+    return (
+      <Card>
+        <CardHeader className="border-b border-[var(--border)] bg-[var(--card-muted)]">
+          <CardTitle>Instructions</CardTitle>
+        </CardHeader>
+        <CardContent className="p-5 sm:p-6">
+          <RecipeStepList
+            ingredientLabelsByNodeId={ingredientLabelsByNodeId}
+            nodes={graph.nodes}
+            recipe={recipe}
+          />
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card className="overflow-hidden">
       <CardHeader className="border-b border-[var(--border)] bg-[var(--card-muted)]">
@@ -334,14 +351,10 @@ export function RecipeFlowDiagram({ recipe }: IRecipeFlowDiagramProps): ReactEle
           <div>
             <CardTitle>Recipe as a flow</CardTitle>
             <p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">
-              {graph.usedFallback
-                ? 'The saved steps are shown in their deterministic cooking order.'
-                : 'Enriched dependencies reveal which preparation branches can run in parallel.'}
+              Enriched dependencies reveal which preparation branches can run in parallel.
             </p>
           </div>
-          <Badge variant={graph.usedFallback ? 'secondary' : 'success'}>
-            {graph.usedFallback ? 'Linear fallback' : 'Enriched flow'}
-          </Badge>
+          <Badge variant="success">Enriched flow</Badge>
         </div>
         <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-[var(--muted-foreground)]">
           <span>Source: {graph.sourceLabel}</span>
@@ -383,32 +396,62 @@ export function RecipeFlowDiagram({ recipe }: IRecipeFlowDiagramProps): ReactEle
           <summary className="cursor-pointer text-sm font-semibold text-[var(--foreground)]">
             Step-by-step recipe summary
           </summary>
-          <ol aria-label="Ordered recipe steps" className="mt-4 list-decimal space-y-4 pl-5 text-sm">
-            {recipe.steps.map((step: IRecipeStep): ReactElement => {
-              const flowNode: RecipeFlowNode | undefined = graph.nodes.find(
-                (node: RecipeFlowNode): boolean => node.data.stepId === step.id,
-              );
-              const ingredientLabels: string[] = flowNode === undefined
-                ? []
-                : ingredientLabelsByNodeId.get(flowNode.id) ?? [];
-
-              return (
-                <li className="pl-1" key={step.id}>
-                  <div className="flex flex-wrap items-center gap-2 font-semibold">
-                    <span>{step.title}</span>
-                    {step.durationMinutes !== null ? <Badge variant="secondary">{formatDuration(step.durationMinutes)}</Badge> : null}
-                  </div>
-                  <p className="mt-1 leading-6 text-[var(--muted-foreground)]">{step.description}</p>
-                  <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-                    Ingredients: {ingredientLabels.length > 0 ? ingredientLabels.join(', ') : 'No linked ingredients'}
-                  </p>
-                </li>
-              );
-            })}
-          </ol>
+          <RecipeStepList
+            className="mt-4"
+            ingredientLabelsByNodeId={ingredientLabelsByNodeId}
+            nodes={graph.nodes}
+            recipe={recipe}
+          />
         </details>
       </CardContent>
     </Card>
+  );
+}
+
+interface IRecipeStepListProps {
+  recipe: IRecipe;
+  nodes: RecipeFlowNode[];
+  ingredientLabelsByNodeId: Map<string, string[]>;
+  className?: string;
+}
+
+function RecipeStepList({
+  recipe,
+  nodes,
+  ingredientLabelsByNodeId,
+  className = '',
+}: IRecipeStepListProps): ReactElement {
+  return (
+    <ol aria-label="Ordered recipe steps" className={`${className} list-decimal space-y-4 pl-5 text-sm`}>
+      {recipe.steps.map((step: IRecipeStep): ReactElement => {
+        const flowNode: RecipeFlowNode | undefined = nodes.find(
+          (node: RecipeFlowNode): boolean => node.data.stepId === step.id,
+        );
+        const ingredientLabels: string[] = flowNode === undefined
+          ? []
+          : ingredientLabelsByNodeId.get(flowNode.id) ?? [];
+        const showTitle: boolean = !/^step\s+\d+$/i.test(step.title.trim());
+
+        return (
+          <li className="pl-1" key={step.id}>
+            {showTitle || step.durationMinutes !== null ? (
+              <div className="flex flex-wrap items-center gap-2 font-semibold">
+                {showTitle ? <span>{step.title}</span> : null}
+                {step.durationMinutes !== null ? <Badge variant="secondary">{formatDuration(step.durationMinutes)}</Badge> : null}
+              </div>
+            ) : null}
+            <p className={`${showTitle || step.durationMinutes !== null ? 'mt-1 ' : ''}leading-6 text-[var(--muted-foreground)]`}>
+              {step.description}
+            </p>
+            {ingredientLabels.length > 0 ? (
+              <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                Ingredients: {ingredientLabels.join(', ')}
+              </p>
+            ) : null}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 

@@ -25,10 +25,11 @@ test('local authenticated import survives refresh and is added to the library', 
 
   await page.getByRole('button', { name: 'Open recipe' }).click();
   await expect(page).toHaveURL(/\/recipes\/[0-9a-f-]{36}$/);
-  await expect(page.getByRole('link', { name: 'Open source' })).toBeVisible();
+  const sourceHost: string = new URL(requestedRecipeUrl).hostname.replace(/^www\./, '');
+  await expect(page.getByRole('link', { name: sourceHost })).toBeVisible();
   const recipeHeading: string | null = await page.getByRole('heading', { level: 1 }).textContent();
   expect(recipeHeading).not.toBeNull();
-  await expect(page.getByRole('link', { name: 'Open source' })).toHaveAttribute(
+  await expect(page.getByRole('link', { name: sourceHost })).toHaveAttribute(
     'href',
     requestedRecipeUrl,
   );
