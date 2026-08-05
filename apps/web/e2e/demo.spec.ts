@@ -6,7 +6,7 @@ test('recipe detail keeps source traceability, scales portions, and renders the 
   page: Page;
 }): Promise<void> => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'What are you cooking next?' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your recipes' })).toBeVisible();
 
   await page.getByRole('link', { name: 'Miso butter salmon' }).click();
   await expect(page).toHaveURL(/\/recipes\/demo-miso-salmon$/);
@@ -27,18 +27,19 @@ test('recipe detail keeps source traceability, scales portions, and renders the 
   await expect(page.locator('summary').filter({ hasText: 'Step-by-step recipe summary' })).toBeVisible();
 });
 
-test('demo import navigates to a durable-status URL and retains the source link', async ({
+test('demo import appears in the library immediately and retains a durable progress link', async ({
   page,
 }: {
   page: Page;
 }): Promise<void> => {
-  await page.goto('/import');
-  await page.getByRole('button', { name: 'Use a sample recipe URL' }).click();
-  await expect(page.getByRole('textbox', { name: 'Recipe URL' })).toHaveValue(
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'Recipe URLs' }).fill(
     'https://www.justonecookbook.com/miso-salmon/',
   );
 
   await page.getByRole('button', { name: 'Import recipe' }).click();
+  await expect(page.getByRole('heading', { name: 'Importing from justonecookbook.com' })).toBeVisible();
+  await page.getByRole('link', { name: 'View progress' }).click();
   await expect(page).toHaveURL(/\/import\/demo-import-\d+-\d+$/);
   await expect(page.getByText('Import in progress')).toBeVisible();
   await expect(
@@ -51,7 +52,7 @@ test('bulk import queues each unique pasted URL and links to every status page',
 }: {
   page: Page;
 }): Promise<void> => {
-  await page.goto('/import');
+  await page.goto('/');
   await page.getByRole('textbox', { name: 'Recipe URLs' }).fill(
     [
       'Recipes to try:',
@@ -67,10 +68,9 @@ test('bulk import queues each unique pasted URL and links to every status page',
   });
   await page.getByRole('button', { name: 'Import 2 recipes' }).click();
 
-  await expect(page).toHaveURL(/\/import$/);
-  await expect(page.getByRole('heading', { name: 'Bulk import submitted' })).toBeVisible();
-  await expect(page.getByText('2 of 2 queued')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'View status' })).toHaveCount(2);
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole('heading', { name: 'Importing from example.com' })).toHaveCount(2);
+  await expect(page.getByRole('link', { name: 'View progress' })).toHaveCount(2);
 });
 
 test('mobile library stays within the viewport and exposes navigation', async ({
@@ -81,8 +81,8 @@ test('mobile library stays within the viewport and exposes navigation', async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
 
-  await expect(page.getByRole('heading', { name: 'Keep every good recipe within reach.' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Open menu' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your recipes' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Recipe URLs' })).toBeVisible();
   const overflowsViewport: boolean = await page.evaluate(
     (): boolean => document.documentElement.scrollWidth > window.innerWidth,
   );

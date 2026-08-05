@@ -14,10 +14,12 @@ test('local authenticated import survives refresh and is added to the library', 
   await page.goto('/');
   await expect(page.getByText('Connected as dev@example.com')).toBeVisible();
 
-  await page.goto('/import');
+  await page.goto('/');
   await page.getByLabel('Recipe URL').fill(requestedRecipeUrl);
   await page.getByRole('button', { name: 'Import recipe' }).click();
 
+  await expect(page.getByRole('heading', { name: new RegExp('Importing from') })).toBeVisible();
+  await page.getByRole('link', { name: 'View progress' }).click();
   await expect(page).toHaveURL(/\/import\/[0-9a-f-]{36}$/);
   await page.reload();
   await expect(page.getByText('That import has expired.')).not.toBeVisible();

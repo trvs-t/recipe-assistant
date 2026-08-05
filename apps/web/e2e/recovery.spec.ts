@@ -77,9 +77,10 @@ async function installImportApiMock(page: Page): Promise<IImportApiState> {
 }
 
 async function submitFailingImport(page: Page): Promise<void> {
-  await page.goto('/import');
+  await page.goto('/');
   await page.getByRole('textbox', { name: 'Recipe URL' }).fill(sourceUrl);
   await page.getByRole('button', { name: 'Import recipe' }).click();
+  await page.getByRole('link', { name: 'View progress' }).click();
   await expect(page).toHaveURL(new RegExp(`/import/${failedJobId}$`));
   await expect(page.getByText('Import failed')).toBeVisible();
 }
@@ -104,6 +105,6 @@ test('failed import can return to a prefilled URL for correction', async ({ page
 
   await page.getByRole('button', { name: 'Edit source URL' }).click();
 
-  await expect(page).toHaveURL(/\/import\?sourceUrl=/);
+  await expect(page).toHaveURL(/\/\?sourceUrl=/);
   await expect(page.getByRole('textbox', { name: 'Recipe URL' })).toHaveValue(sourceUrl);
 });

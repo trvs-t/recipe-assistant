@@ -86,8 +86,8 @@ function ImportStatusPage(): ReactElement {
           }}
           state="query_error"
         />
-        <Link className="inline-block" to="/import">
-          <Button variant="outline">Back to import</Button>
+        <Link className="inline-block" to="/">
+          <Button variant="outline">Back to library</Button>
         </Link>
       </div>
     );
@@ -100,7 +100,7 @@ function ImportStatusPage(): ReactElement {
         <Badge variant="secondary">Import not found</Badge>
         <h1 className="mt-4 font-display text-3xl font-semibold">That import has expired.</h1>
         <p className="mt-3 text-sm leading-6 text-[var(--muted-foreground)]">Start a new import to put a recipe in your library.</p>
-        <Link className="mt-6 inline-block" to="/import">
+        <Link className="mt-6 inline-block" to="/">
           <Button>Import another recipe</Button>
         </Link>
       </Card>
@@ -147,16 +147,16 @@ function ImportStatusPage(): ReactElement {
 
   const handleEditSource: () => void = (): void => {
     void navigate({
-      to: '/import',
+      to: '/',
       search: { sourceUrl: submission.sourceUrl },
     });
   };
 
   return (
     <div className="mx-auto max-w-3xl space-y-8">
-      <Link className="inline-flex items-center gap-2 text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)]" to="/import">
+      <Link className="inline-flex items-center gap-2 text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)]" to="/">
         <ArrowLeft size={16} />
-        Back to import
+        Back to library
       </Link>
       <section>
         <Badge variant={failed || needsInput ? 'warning' : completed ? 'success' : 'default'}>
