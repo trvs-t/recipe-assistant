@@ -39,11 +39,38 @@ test('demo import navigates to a durable-status URL and retains the source link'
   );
 
   await page.getByRole('button', { name: 'Import recipe' }).click();
-  await expect(page).toHaveURL(/\/import\/demo-import-\d+$/);
+  await expect(page).toHaveURL(/\/import\/demo-import-\d+-\d+$/);
   await expect(page.getByText('Import in progress')).toBeVisible();
   await expect(
     page.getByRole('link', { name: 'https://www.justonecookbook.com/miso-salmon/' }),
   ).toHaveAttribute('href', 'https://www.justonecookbook.com/miso-salmon/');
+});
+
+test('bulk import queues each unique pasted URL and links to every status page', async ({
+  page,
+}: {
+  page: Page;
+}): Promise<void> => {
+  await page.goto('/import');
+  await page.getByRole('textbox', { name: 'Recipe URLs' }).fill(
+    [
+      'Recipes to try:',
+      '- https://example.com/recipe-one',
+      '2. https://example.com/recipe-two',
+      '• https://example.com/recipe-one',
+    ].join('\n'),
+  );
+
+  page.once('dialog', async (dialog): Promise<void> => {
+    expect(dialog.message()).toBe('Found 2 recipe URLs. Other pasted text will be ignored. Continue?');
+    await dialog.accept();
+  });
+  await page.getByRole('button', { name: 'Import 2 recipes' }).click();
+
+  await expect(page).toHaveURL(/\/import$/);
+  await expect(page.getByRole('heading', { name: 'Bulk import submitted' })).toBeVisible();
+  await expect(page.getByText('2 of 2 queued')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'View status' })).toHaveCount(2);
 });
 
 test('mobile library stays within the viewport and exposes navigation', async ({

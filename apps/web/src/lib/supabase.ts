@@ -108,6 +108,7 @@ const importJobStatuses: readonly ImportJobStatus[] = [
 ];
 
 let fallbackIdempotencyKeyCounter: number = 0;
+let demoImportSubmissionCounter: number = 0;
 
 export type ImportJobStatus =
   | 'queued'
@@ -711,7 +712,8 @@ function createDemoAdapter(): ISupabaseAdapter {
       return getDemoRecipe(recipeId);
     },
     async submitImport(request: IImportRequestWithIdempotencyKey): Promise<IImportSubmission> {
-      const submissionId: string = `demo-import-${Date.now()}`;
+      demoImportSubmissionCounter += 1;
+      const submissionId: string = `demo-import-${Date.now()}-${demoImportSubmissionCounter}`;
       const submission: IImportSubmission = {
         id: submissionId,
         jobId: submissionId,
