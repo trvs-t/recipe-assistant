@@ -21,10 +21,12 @@ describe('Supabase adapter', (): void => {
     const adapter = createSupabaseAdapter({ VITE_SUPABASE_URL: 'not-a-url' });
     const submission = await adapter.submitImport({ sourceUrl: 'https://example.com/recipe' });
     const restoredSubmission = await adapter.getImportSubmission(submission.id);
+    const listedSubmissions = await adapter.listImportSubmissions();
 
     expect(submission.status).toBe('parsing');
     expect(submission.jobId).toBe(submission.id);
     expect(restoredSubmission?.sourceUrl).toBe('https://example.com/recipe');
+    expect(listedSubmissions.some((item) => item.id === submission.id)).toBe(true);
   });
 
   it('recognizes every durable import status and only terminal statuses stop polling', (): void => {

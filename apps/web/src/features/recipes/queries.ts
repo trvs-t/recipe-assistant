@@ -15,13 +15,32 @@ export const recipeQueryKeys = {
   all: ['recipes'] as const,
   list: () => [...recipeQueryKeys.all, 'list'] as const,
   detail: (recipeId: string) => [...recipeQueryKeys.all, 'detail', recipeId] as const,
-  submission: (submissionId: string) => ['imports', 'submission', submissionId] as const,
+  imports: ['imports'] as const,
+  importList: () => [...recipeQueryKeys.imports, 'list'] as const,
+  submission: (submissionId: string) => [...recipeQueryKeys.imports, 'submission', submissionId] as const,
 };
 
 export function useRecipeListQuery(): UseQueryResult<IRecipeSummary[], Error> {
   return useQuery<IRecipeSummary[], Error>({
     queryKey: recipeQueryKeys.list(),
     queryFn: (): Promise<IRecipeSummary[]> => supabaseAdapter.listRecipes(),
+  });
+}
+
+function shouldPollImportList(
+  query: Query<IImportSubmission[], Error, IImportSubmission[], QueryKey>,
+): number | false {
+  const submissions: IImportSubmission[] = query.state.data ?? [];
+  return submissions.some((submission: IImportSubmission): boolean => !isTerminalImportStatus(submission.status))
+    ? 3_000
+    : false;
+}
+
+export function useImportSubmissionListQuery(): UseQueryResult<IImportSubmission[], Error> {
+  return useQuery<IImportSubmission[], Error>({
+    queryKey: recipeQueryKeys.importList(),
+    queryFn: (): Promise<IImportSubmission[]> => supabaseAdapter.listImportSubmissions(),
+    refetchInterval: shouldPollImportList,
   });
 }
 

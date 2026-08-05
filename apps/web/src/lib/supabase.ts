@@ -109,6 +109,7 @@ const importJobStatuses: readonly ImportJobStatus[] = [
 
 let fallbackIdempotencyKeyCounter: number = 0;
 let demoImportSubmissionCounter: number = 0;
+const DEMO_IMPORT_STORAGE_KEY: string = 'recipe-collector.demo-imports.v1';
 
 export type ImportJobStatus =
   | 'queued'
@@ -188,6 +189,7 @@ export interface ISupabaseAdapter {
   readonly mode: SupabaseMode;
   readonly client: TypedSupabaseClient | null;
   listRecipes(): Promise<IRecipeSummary[]>;
+  listImportSubmissions(): Promise<IImportSubmission[]>;
   getRecipe(recipeId: string): Promise<IRecipe | null>;
   submitImport(request: IImportRequestWithIdempotencyKey): Promise<IImportSubmission>;
   getImportSubmission(submissionId: string): Promise<IImportSubmission | null>;
@@ -568,6 +570,105 @@ function mapImportJobRow(row: IRecipeImportJobRow): IImportSubmission {
   };
 }
 
+function isImportSubmissionStatusValue(value: string): value is ImportSubmissionStatus {
+  return (
+    value === 'pending' ||
+    value === 'parsing' ||
+    value === 'parsed' ||
+    value === 'error' ||
+    isImportJobStatus(value)
+  );
+}
+
+function readNullableNumber(record: Record<string, unknown>, key: string): number | null {
+  const value: unknown = record[key];
+  return value === null || value === undefined
+    ? null
+    : typeof value === 'number' && Number.isFinite(value)
+      ? value
+      : null;
+}
+
+function readDemoSubmission(value: unknown): IImportSubmission | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const id: string | null = readString(value, 'id');
+  const jobId: string | null = readString(value, 'jobId');
+  const sourceUrl: string | null = readString(value, 'sourceUrl');
+  const submittedAt: string | null = readString(value, 'submittedAt');
+  const rawStatus: string | null = readString(value, 'status');
+  const message: string | null = readString(value, 'message');
+  const deduplicated: boolean | null = readBoolean(value, 'deduplicated');
+
+  if (
+    id === null ||
+    jobId === null ||
+    sourceUrl === null ||
+    submittedAt === null ||
+    rawStatus === null ||
+    !isImportSubmissionStatusValue(rawStatus) ||
+    message === null ||
+    deduplicated === null
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    jobId,
+    sourceUrl,
+    status: rawStatus,
+    submittedAt,
+    recipeId: readString(value, 'recipeId'),
+    message,
+    deduplicated,
+    attemptCount: readNullableNumber(value, 'attemptCount'),
+    maxAttempts: readNullableNumber(value, 'maxAttempts'),
+    nextAttemptAt: readString(value, 'nextAttemptAt'),
+    errorCode: readString(value, 'errorCode'),
+    errorMessage: readString(value, 'errorMessage'),
+    errorRetryable: readBoolean(value, 'errorRetryable'),
+  };
+}
+
+function readDemoSubmissions(): IImportSubmission[] {
+  if (typeof globalThis.localStorage === 'undefined') {
+    return [];
+  }
+
+  try {
+    const storedValue: string | null = globalThis.localStorage.getItem(DEMO_IMPORT_STORAGE_KEY);
+    if (storedValue === null) {
+      return [];
+    }
+
+    const parsedValue: unknown = JSON.parse(storedValue);
+    if (!Array.isArray(parsedValue)) {
+      return [];
+    }
+
+    return parsedValue
+      .map((value: unknown): IImportSubmission | null => readDemoSubmission(value))
+      .filter((value: IImportSubmission | null): value is IImportSubmission => value !== null);
+  } catch {
+    return [];
+  }
+}
+
+function persistDemoSubmissions(submissions: Map<string, IImportSubmission>): void {
+  if (typeof globalThis.localStorage === 'undefined') {
+    return;
+  }
+
+  try {
+    globalThis.localStorage.setItem(DEMO_IMPORT_STORAGE_KEY, JSON.stringify([...submissions.values()]));
+  } catch {
+    // Demo persistence is best-effort when browser storage is unavailable.
+  }
+}
+
 function readResponseErrorMessage(record: Record<string, unknown>): string | null {
   const rawError: unknown = record['error'];
   if (typeof rawError === 'string') {
@@ -633,6 +734,19 @@ function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
       }
 
       return result.data.map(mapRecipeSummary);
+    },
+    async listImportSubmissions(): Promise<IImportSubmission[]> {
+      const result = await client
+        .from('recipe_import_jobs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (result.error) {
+        throw new SupabaseAdapterError('Unable to load your in-progress imports.', result.error);
+      }
+
+      return result.data.map(mapImportJobRow);
     },
     getRecipe: getRemoteRecipe,
     async submitImport(request: IImportRequestWithIdempotencyKey): Promise<IImportSubmission> {
@@ -700,13 +814,21 @@ function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
 }
 
 function createDemoAdapter(): ISupabaseAdapter {
-  const submissions: Map<string, IImportSubmission> = new Map<string, IImportSubmission>();
+  const submissions: Map<string, IImportSubmission> = new Map<string, IImportSubmission>(
+    readDemoSubmissions().map((submission: IImportSubmission): [string, IImportSubmission] => [submission.id, submission]),
+  );
 
   return {
     mode: 'demo',
     client: null,
     async listRecipes(): Promise<IRecipeSummary[]> {
       return getDemoRecipeSummaries();
+    },
+    async listImportSubmissions(): Promise<IImportSubmission[]> {
+      return [...submissions.values()].sort(
+        (first: IImportSubmission, second: IImportSubmission): number =>
+          second.submittedAt.localeCompare(first.submittedAt),
+      );
     },
     async getRecipe(recipeId: string): Promise<IRecipe | null> {
       return getDemoRecipe(recipeId);
@@ -731,6 +853,7 @@ function createDemoAdapter(): ISupabaseAdapter {
         errorRetryable: null,
       };
       submissions.set(submission.id, submission);
+      persistDemoSubmissions(submissions);
       return submission;
     },
     async getImportSubmission(submissionId: string): Promise<IImportSubmission | null> {

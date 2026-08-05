@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type Re
 
 import { ArrowRight, BookOpen, CircleAlert, Clock3, Link2, LoaderCircle, Search } from 'lucide-react';
 import { createFileRoute, Link } from '@tanstack/react-router';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 
 import { RecipeCard } from '@/components/recipes/recipe-card';
 import { Badge } from '@/components/ui/badge';
@@ -10,10 +11,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useRecipeListQuery } from '@/features/recipes/queries';
+import { recipeQueryKeys, useImportSubmissionListQuery, useRecipeListQuery } from '@/features/recipes/queries';
 import { getSourceLabel, MAX_BULK_IMPORT_URLS, parseSourceUrls, type IParsedSourceUrls } from '@/lib/format';
 import {
   createImportIdempotencyKey,
+  isTerminalImportStatus,
   supabaseAdapter,
   type IImportRequestWithIdempotencyKey,
   type IImportSubmission,
@@ -54,8 +56,36 @@ function LibraryPage(): ReactElement {
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [libraryImports, setLibraryImports] = useState<ILibraryImport[]>([]);
+  const queryClient: QueryClient = useQueryClient();
   const recipesQuery = useRecipeListQuery();
+  const importSubmissionsQuery = useImportSubmissionListQuery();
   const recipes: IRecipeSummary[] = recipesQuery.data ?? [];
+  const importSubmissions: IImportSubmission[] = importSubmissionsQuery.data ?? [];
+  const activeImportSubmissions: IImportSubmission[] = useMemo(
+    (): IImportSubmission[] => importSubmissions.filter(
+      (submission: IImportSubmission): boolean => !isTerminalImportStatus(submission.status),
+    ),
+    [importSubmissions],
+  );
+  const visibleLibraryImports: ILibraryImport[] = useMemo((): ILibraryImport[] => {
+    const persistedSubmissionIds: Set<string> = new Set(
+      importSubmissions.map((submission: IImportSubmission): string => submission.id),
+    );
+    const optimisticImports: ILibraryImport[] = libraryImports.filter(
+      (item: ILibraryImport): boolean =>
+        item.submissionId === null || !persistedSubmissionIds.has(item.submissionId),
+    );
+    const hydratedImports: ILibraryImport[] = activeImportSubmissions.map(
+      (submission: IImportSubmission): ILibraryImport => ({
+        clientId: `server:${submission.id}`,
+        sourceUrl: submission.sourceUrl,
+        state: 'queued',
+        submissionId: submission.id,
+        message: submission.message,
+      }),
+    );
+    return [...optimisticImports, ...hydratedImports];
+  }, [activeImportSubmissions, importSubmissions, libraryImports]);
   const normalizedSearchTerm: string = searchTerm.trim().toLowerCase();
   const filteredRecipes: IRecipeSummary[] = useMemo(
     (): IRecipeSummary[] =>
@@ -79,6 +109,16 @@ function LibraryPage(): ReactElement {
       document.getElementById('source-urls')?.focus();
     }
   }, [sourceUrlFromSearch]);
+
+  useEffect((): void => {
+    const completedSubmission: IImportSubmission | undefined = importSubmissions.find(
+      (submission: IImportSubmission): boolean =>
+        (submission.status === 'completed' || submission.status === 'parsed') && submission.recipeId !== null,
+    );
+    if (completedSubmission !== undefined) {
+      void queryClient.invalidateQueries({ queryKey: recipeQueryKeys.list() });
+    }
+  }, [importSubmissions, queryClient]);
 
   const handleSearchChange = (event: ChangeEvent<HTMLInputElement>): void => {
     setSearchTerm(event.target.value);
@@ -226,9 +266,9 @@ function LibraryPage(): ReactElement {
         </div>
       </section>
 
-      {libraryImports.length > 0 ? (
+      {visibleLibraryImports.length > 0 ? (
         <div aria-label="Recipes being imported" aria-live="polite" className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-          {libraryImports.map((item: ILibraryImport): ReactElement => (
+          {visibleLibraryImports.map((item: ILibraryImport): ReactElement => (
             <ImportingRecipeCard item={item} key={item.clientId} />
           ))}
         </div>

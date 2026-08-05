@@ -39,6 +39,8 @@ test('demo import appears in the library immediately and retains a durable progr
 
   await page.getByRole('button', { name: 'Import recipe' }).click();
   await expect(page.getByRole('heading', { name: 'Importing from justonecookbook.com' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Importing from justonecookbook.com' })).toBeVisible();
   await page.getByRole('link', { name: 'View progress' }).click();
   await expect(page).toHaveURL(/\/import\/demo-import-\d+-\d+$/);
   await expect(page.getByText('Import in progress')).toBeVisible();

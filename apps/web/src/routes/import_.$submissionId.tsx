@@ -64,7 +64,10 @@ function ImportStatusPage(): ReactElement {
     if (completedRecipeId !== null) {
       void queryClient.invalidateQueries({ queryKey: recipeQueryKeys.all });
     }
-  }, [completedRecipeId, queryClient]);
+    if (completedRecipeId !== null || submissionForInvalidation?.status === 'failed' || submissionForInvalidation?.status === 'needs_input') {
+      void queryClient.invalidateQueries({ queryKey: recipeQueryKeys.imports });
+    }
+  }, [completedRecipeId, queryClient, submissionForInvalidation?.status]);
 
   if (submissionQuery.isPending) {
     return <StatusLoading />;
