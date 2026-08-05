@@ -34,3 +34,30 @@ INSERT INTO auth.users (
   ''
 )
 ON CONFLICT (id) DO NOTHING;
+
+-- Local pg_cron recovery for durable imports. The public submission performs a
+-- best-effort immediate worker kick; this internal URL and local-only secret
+-- ensure retry_wait jobs are claimed again without manual intervention.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM vault.decrypted_secrets WHERE name = 'project_url'
+  ) THEN
+    PERFORM vault.create_secret(
+      'http://kong:8000',
+      'project_url',
+      'Local Recipe Assistant Edge Function base URL'
+    );
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM vault.decrypted_secrets WHERE name = 'import_worker_secret'
+  ) THEN
+    PERFORM vault.create_secret(
+      'recipe-assistant-local-worker-only',
+      'import_worker_secret',
+      'Local Recipe Assistant import worker secret'
+    );
+  END IF;
+END;
+$$;

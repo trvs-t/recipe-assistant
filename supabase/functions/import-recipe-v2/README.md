@@ -23,14 +23,13 @@ SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=...
 IMPORT_WORKER_SECRET=...
 OPENROUTER_API_KEY=...
-OPENROUTER_MODEL=qwen/qwen3.6-plus
+OPENROUTER_MODEL=deepseek/deepseek-v4-flash
 ```
 
 `OPENROUTER_MODEL` is intentionally required so a deployment makes its model and
-cost choice explicitly. `qwen/qwen3.6-plus` is the recommended pinned
-reliability evaluation model. `openrouter/free` is an optional explicit choice
-for local or cost-constrained trials and should not be used as an implicit
-production default.
+cost choice explicitly. `deepseek/deepseek-v4-flash` is the evaluated pinned
+low-cost model. `openrouter/free` is an optional explicit choice for local or
+cost-constrained trials and should not be used as a production default.
 
 The worker's queue visibility lease and the SQL RPC transitions are the
 durability boundary; completion is never delegated to a background callback.

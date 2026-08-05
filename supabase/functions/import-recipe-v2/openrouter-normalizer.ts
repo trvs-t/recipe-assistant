@@ -6,10 +6,13 @@ import {
   type NormalizedRecipeDraft,
 } from "./types.ts";
 
-export const RECOMMENDED_OPENROUTER_MODEL: string = "qwen/qwen3.6-plus";
+export const RECOMMENDED_OPENROUTER_MODEL: string =
+  "deepseek/deepseek-v4-flash";
 export const OPENROUTER_ENDPOINT: string =
   "https://openrouter.ai/api/v1/chat/completions";
-export const OPENROUTER_TIMEOUT_MS: number = 20_000;
+export const OPENROUTER_TIMEOUT_MS: number = 30_000;
+export const OPENROUTER_INLINE_ATTEMPTS: number = 2;
+export const OPENROUTER_CONTENT_LIMIT: number = 15_000;
 
 export interface OpenRouterTransport {
   fetch(input: string, init: RequestInit): Promise<Response>;
@@ -27,6 +30,7 @@ export interface OpenRouterNormalizerOptions {
   readonly endpoint?: string;
   readonly timeout_ms?: number;
   readonly max_tokens?: number;
+  readonly max_inline_attempts?: number;
   readonly transport?: OpenRouterTransport;
   readonly site_url?: string;
   readonly site_name?: string;
@@ -38,6 +42,7 @@ export class OpenRouterNormalizer implements AiNormalizationAdapter {
   private readonly endpoint: string;
   private readonly timeout_ms: number;
   private readonly max_tokens: number;
+  private readonly max_inline_attempts: number;
   private readonly transport: OpenRouterTransport;
   private readonly site_url: string | undefined;
   private readonly site_name: string | undefined;
@@ -51,6 +56,10 @@ export class OpenRouterNormalizer implements AiNormalizationAdapter {
       OPENROUTER_TIMEOUT_MS,
     );
     this.max_tokens = positiveInteger(options.max_tokens, 4096);
+    this.max_inline_attempts = positiveInteger(
+      options.max_inline_attempts,
+      OPENROUTER_INLINE_ATTEMPTS,
+    );
     this.transport = options.transport ?? defaultOpenRouterTransport;
     this.site_url = options.site_url;
     this.site_name = options.site_name;
@@ -64,26 +73,66 @@ export class OpenRouterNormalizer implements AiNormalizationAdapter {
   }
 
   async normalize(input: AiNormalizationInput): Promise<NormalizedRecipeDraft> {
-    const response: Response = await this.request(input);
-    const responseText: string = await readResponseText(response);
+    let lastError: PipelineError | null = null;
+    for (
+      let inline_attempt: number = 1;
+      inline_attempt <= this.max_inline_attempts;
+      inline_attempt += 1
+    ) {
+      try {
+        return await this.normalizeOnce(input, inline_attempt);
+      } catch (error) {
+        if (!(error instanceof PipelineError) || !shouldRetryInline(error)) {
+          throw error;
+        }
+        lastError = error;
+      }
+    }
+
+    if (lastError !== null) {
+      throw new PipelineError({
+        code: lastError.code,
+        message: lastError.message,
+        stage: "normalize",
+        retryable: true,
+        details: {
+          ...lastError.details,
+          inline_attempts: this.max_inline_attempts,
+        },
+      });
+    }
+    throw invalidAiResponse(
+      "OpenRouter did not return a usable recipe payload",
+    );
+  }
+
+  private async normalizeOnce(
+    input: AiNormalizationInput,
+    inline_attempt: number,
+  ): Promise<NormalizedRecipeDraft> {
+    const response: Response = await this.request(input, inline_attempt);
+    const responseText: string = await readResponseText(
+      response,
+      this.timeout_ms,
+    );
     const responseBody: unknown = parseResponseJson(responseText);
     const content: string = extractMessageContent(responseBody);
     let normalizedOutput: unknown;
     try {
-      normalizedOutput = JSON.parse(content);
+      normalizedOutput = JSON.parse(extractJsonObjectText(content));
     } catch {
-      throw new PipelineError({
-        code: "RECIPE_OUTPUT_INVALID",
-        message: "OpenRouter returned content that is not strict JSON",
-        stage: "normalize",
-        retryable: false,
-      });
+      throw invalidAiResponse(
+        "OpenRouter returned content that is not strict JSON",
+      );
     }
 
     return normalizeRecipeDraft(normalizedOutput, input.source_url);
   }
 
-  private async request(input: AiNormalizationInput): Promise<Response> {
+  private async request(
+    input: AiNormalizationInput,
+    inline_attempt: number,
+  ): Promise<Response> {
     const controller: AbortController = new AbortController();
     const headers: Record<string, string> = {
       authorization: `Bearer ${this.api_key}`,
@@ -100,30 +149,27 @@ export class OpenRouterNormalizer implements AiNormalizationAdapter {
       model: this.model,
       max_tokens: this.max_tokens,
       temperature: 0,
+      reasoning: {
+        effort: "none",
+      },
       provider: {
         require_parameters: true,
       },
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "recipe_normalization",
-          strict: true,
-          schema: RECIPE_NORMALIZATION_SCHEMA,
-        },
-      },
+      response_format: responseFormat(inline_attempt),
       messages: [
         {
           role: "system",
           content:
-            "Extract one recipe from the supplied source. Return only the requested JSON schema. Do not invent ingredients or steps. Use null when a scalar is unavailable.",
+            "Extract one recipe from the supplied source and return only JSON. Required top-level keys: title, description, ingredients, steps, servings, prepTimeMinutes, cookTimeMinutes, totalTimeMinutes, images, cuisineType, dietaryTags, parseConfidence, status. Each ingredient requires id, originalText, quantity, unit, name, notes, sortOrder. Each step requires id, instruction, timerDurationMinutes, sortOrder. Do not invent ingredients or steps. Every explicit ingredient quantity must be greater than zero; use null only when the source truly omits a quantity. Use null when another scalar is unavailable.",
         },
         {
           role: "user",
           content: [
             `Requested source URL: ${input.source_url}`,
             `Resolved source URL: ${input.resolved_url}`,
+            `Normalization attempt: ${inline_attempt} of ${this.max_inline_attempts}`,
             "Recipe source content:",
-            input.content.slice(0, 60_000),
+            prepareRecipeSourceContent(input.content),
           ].join("\n\n"),
         },
       ],
@@ -147,7 +193,10 @@ export class OpenRouterNormalizer implements AiNormalizationAdapter {
         return response;
       }
 
-      const errorText: string = await readResponseText(response);
+      const errorText: string = await readResponseText(
+        response,
+        this.timeout_ms,
+      );
       throw new PipelineError({
         code: "AI_NORMALIZATION_FAILED",
         message: `OpenRouter returned HTTP ${response.status}`,
@@ -328,10 +377,42 @@ async function fetchWithTimeout(
   }
 }
 
-async function readResponseText(response: Response): Promise<string> {
+async function readResponseText(
+  response: Response,
+  timeout_ms: number,
+): Promise<string> {
+  if (response.body === null) {
+    return "";
+  }
+  const reader: ReadableStreamDefaultReader<Uint8Array> = response.body
+    .getReader();
+  const decoder: TextDecoder = new TextDecoder();
+  const deadline: number = Date.now() + timeout_ms;
+  let body: string = "";
+  let complete: boolean = false;
   try {
-    return (await response.text()).slice(0, 200_000);
+    while (body.length < 200_000) {
+      const remaining_ms: number = deadline - Date.now();
+      if (remaining_ms <= 0) {
+        throw responseBodyTimeout(timeout_ms);
+      }
+      const chunk: ReadableStreamReadResult<Uint8Array> =
+        await readOpenRouterChunk(reader, remaining_ms, timeout_ms);
+      if (chunk.done) {
+        complete = true;
+        body += decoder.decode();
+        return body.slice(0, 200_000);
+      }
+      body += decoder.decode(chunk.value, { stream: true });
+      if (isCompleteJson(body)) {
+        return body.slice(0, 200_000);
+      }
+    }
+    return body.slice(0, 200_000);
   } catch (error) {
+    if (error instanceof PipelineError) {
+      throw error;
+    }
     throw new PipelineError({
       code: "AI_NORMALIZATION_FAILED",
       message: "OpenRouter returned an unreadable response",
@@ -343,7 +424,60 @@ async function readResponseText(response: Response): Promise<string> {
           : "Response body read failed",
       },
     });
+  } finally {
+    if (!complete) {
+      await reader.cancel().catch((): undefined => undefined);
+    }
   }
+}
+
+function isCompleteJson(value: string): boolean {
+  const trimmed: string = value.trim();
+  if (
+    !(trimmed.startsWith("{") && trimmed.endsWith("}")) &&
+    !(trimmed.startsWith("[") && trimmed.endsWith("]"))
+  ) {
+    return false;
+  }
+  try {
+    JSON.parse(trimmed);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readOpenRouterChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  remaining_ms: number,
+  timeout_ms: number,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  let timeout_id: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise<never>((_resolve, reject): void => {
+        timeout_id = setTimeout(
+          (): void => reject(responseBodyTimeout(timeout_ms)),
+          remaining_ms,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout_id !== undefined) {
+      clearTimeout(timeout_id);
+    }
+  }
+}
+
+function responseBodyTimeout(timeout_ms: number): PipelineError {
+  return new PipelineError({
+    code: "AI_NORMALIZATION_FAILED",
+    message: "OpenRouter response body exceeded its timeout",
+    stage: "normalize",
+    retryable: true,
+    details: { timeout_ms },
+  });
 }
 
 function parseResponseJson(value: string): unknown {
@@ -383,8 +517,100 @@ function invalidAiResponse(message: string): PipelineError {
     code: "RECIPE_OUTPUT_INVALID",
     message,
     stage: "normalize",
-    retryable: false,
+    retryable: true,
   });
+}
+
+function shouldRetryInline(error: PipelineError): boolean {
+  if (error.code === "RECIPE_OUTPUT_INVALID") {
+    return true;
+  }
+  return error.code === "AI_NORMALIZATION_FAILED" &&
+    error.retryable && error.details["status"] === undefined;
+}
+
+function stripJsonCodeFence(content: string): string {
+  const match: RegExpMatchArray | null = content.trim().match(
+    /^```(?:json)?\s*([\s\S]*?)\s*```$/i,
+  );
+  return match?.[1]?.trim() ?? content.trim();
+}
+
+function extractJsonObjectText(content: string): string {
+  const stripped: string = stripJsonCodeFence(content);
+  if (isCompleteJson(stripped)) {
+    return stripped;
+  }
+  const start: number = stripped.indexOf("{");
+  const end: number = stripped.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    const candidate: string = stripped.slice(start, end + 1);
+    if (isCompleteJson(candidate)) {
+      return candidate;
+    }
+  }
+  return stripped;
+}
+
+export function prepareRecipeSourceContent(content: string): string {
+  const withoutNoise: string = content
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<(script|style|noscript|svg)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, " ")
+    .replace(/<br\s*\/?\s*>/gi, "\n")
+    .replace(/<\/\s*(?:p|div|li|section|article|h[1-6]|tr)\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, " ");
+  const text: string = decodeHtmlEntities(withoutNoise)
+    .replace(/[\t\f\v ]+/g, " ")
+    .replace(/\n\s*\n+/g, "\n")
+    .trim();
+  if (text.length <= OPENROUTER_CONTENT_LIMIT) {
+    return text;
+  }
+
+  const markerIndex: number = text.toLowerCase().search(
+    /\b(?:ingredients|ingredient list|method|instructions|directions)\b/,
+  );
+  const start: number = markerIndex < 0 ? 0 : Math.max(0, markerIndex - 1_000);
+  return text.slice(start, start + OPENROUTER_CONTENT_LIMIT);
+}
+
+function responseFormat(
+  inline_attempt: number,
+): Readonly<Record<string, unknown>> {
+  if (inline_attempt === 1) {
+    return {
+      type: "json_schema",
+      json_schema: {
+        name: "recipe_normalization",
+        strict: true,
+        schema: RECIPE_NORMALIZATION_SCHEMA,
+      },
+    };
+  }
+  return { type: "json_object" };
+}
+
+function decodeHtmlEntities(value: string): string {
+  const named: Readonly<Record<string, string>> = {
+    amp: "&",
+    apos: "'",
+    gt: ">",
+    lt: "<",
+    nbsp: " ",
+    quot: '"',
+  };
+  return value.replace(
+    /&(#x[0-9a-f]+|#\d+|[a-z]+);/gi,
+    (_match: string, entity: string): string => {
+      if (entity.startsWith("#x") || entity.startsWith("#X")) {
+        return String.fromCodePoint(Number.parseInt(entity.slice(2), 16));
+      }
+      if (entity.startsWith("#")) {
+        return String.fromCodePoint(Number.parseInt(entity.slice(1), 10));
+      }
+      return named[entity.toLowerCase()] ?? `&${entity};`;
+    },
+  );
 }
 
 function isRetryableStatus(status: number): boolean {

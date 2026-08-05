@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useRecipeListQuery } from '@/features/recipes/queries';
+import { supabaseAdapter } from '@/lib/supabase';
 
 import type { IRecipeSummary } from '@/features/recipes/contracts';
 
@@ -64,7 +65,11 @@ function LibraryPage(): ReactElement {
                   Import a recipe
                 </Button>
               </Link>
-              <span className="text-sm text-white/55">Three sample recipes included in demo mode</span>
+              <span className="text-sm text-white/55">
+                {supabaseAdapter.mode === 'demo'
+                  ? 'Three sample recipes included in demo mode'
+                  : 'Imports save to your private recipe library'}
+              </span>
             </div>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-sm">

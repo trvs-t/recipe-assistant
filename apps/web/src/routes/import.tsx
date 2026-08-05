@@ -163,7 +163,7 @@ function ImportPage(): ReactElement {
         </div>
         <RecipeFlow />
         <div className="grid gap-4 pt-2 md:grid-cols-3">
-          <FeaturePlaceholder icon={<ScanSearch size={18} />} title="Source detection" text="A placeholder for schema and page validation signals." />
+          <FeaturePlaceholder icon={<ScanSearch size={18} />} title="Source detection" text="Schema.org recipes are parsed first, with an AI fallback for unstructured pages." />
           <FeaturePlaceholder icon={<WandSparkles size={18} />} title="Portion scaling" text="Normalized quantities make serving changes predictable." />
           <FeaturePlaceholder icon={<LockKeyhole size={18} />} title="Source traceability" text="Keep the original page linked to every imported recipe." />
         </div>

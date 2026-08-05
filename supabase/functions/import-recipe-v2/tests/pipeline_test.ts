@@ -288,6 +288,46 @@ Deno.test("maps invalid normalized output to needs_input instead of leaving norm
   assertEquals(result.record.job.last_error?.code, "RECIPE_OUTPUT_INVALID");
 });
 
+Deno.test("rejects zero ingredient quantities before persistence", async () => {
+  const source_fetcher: SourceFetcher = {
+    fetch(_source_url: string, _attempt: number): Promise<SourceDocument> {
+      return Promise.resolve(sourceDocument(
+        source_url,
+        "<html><body>Ingredients and method</body></html>",
+      ));
+    },
+  };
+  const ai_normalizer: AiNormalizationAdapter = {
+    normalize(_input): Promise<NormalizedRecipeDraft> {
+      return Promise.resolve({
+        ...aiDraft(),
+        ingredients: [{
+          original: "0 cups flour",
+          quantity: 0,
+          unit: "cups",
+          name: "flour",
+          notes: null,
+        }],
+      });
+    },
+  };
+  const persistence: MemoryPersistence = new MemoryPersistence();
+  const result = await runImport(
+    { source_url, idempotency_key: "zero-quantity" },
+    dependencies(
+      source_fetcher,
+      ai_normalizer,
+      persistence,
+      new RecordingLogger(),
+    ),
+    { max_attempts: 1 },
+  );
+
+  assertEquals(result.record.job.status, "needs_input");
+  assertEquals(result.record.recipe, null);
+  assertEquals(result.record.job.last_error?.code, "RECIPE_OUTPUT_INVALID");
+});
+
 Deno.test("reuses a terminal result for the same idempotency key without refetching", async () => {
   let fetchCalls: number = 0;
   const source_fetcher: SourceFetcher = {

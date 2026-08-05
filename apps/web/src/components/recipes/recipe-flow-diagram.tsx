@@ -181,7 +181,8 @@ export function isRecipeFlowValidForRecipe(recipe: IRecipe, value: unknown): val
 
 /** Build React Flow nodes and edges from the recipe's canonical graph data. */
 export function buildRecipeFlowGraph(recipe: IRecipe): IRecipeFlowGraph {
-  const enrichedFlow: IRecipeFlow | null = isRecipeFlowValidForRecipe(recipe, recipe.flow)
+  const enrichedFlow: IRecipeFlow | null = recipe.flow?.derivation === 'enriched'
+    && isRecipeFlowValidForRecipe(recipe, recipe.flow)
     ? recipe.flow
     : null;
   const flow: IRecipeFlow = enrichedFlow ?? createLinearRecipeFlow(recipe.steps);

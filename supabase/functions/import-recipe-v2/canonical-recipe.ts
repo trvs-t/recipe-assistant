@@ -6,6 +6,7 @@ import {
   type RecipeFlowNode,
   type RecipeIngredient,
 } from "./types.ts";
+import { PipelineError } from "./errors.ts";
 
 export interface CanonicalIngredientPayload {
   readonly id: string;
@@ -46,6 +47,7 @@ export function mapToCanonicalRecipe(
   recipe: NormalizedRecipe,
   source_url: string,
 ): CanonicalRecipePayload {
+  assertSemanticallyValidRecipe(recipe);
   const ingredients: readonly CanonicalIngredientPayload[] = recipe.ingredients
     .map(
       (
@@ -118,6 +120,54 @@ export function mapToCanonicalRecipe(
     steps,
     flow,
   };
+}
+
+export function assertSemanticallyValidRecipe(recipe: NormalizedRecipe): void {
+  if (recipe.title.trim().length === 0) {
+    throw invalidRecipe("Recipe title must not be empty");
+  }
+  if (recipe.ingredients.length === 0) {
+    throw invalidRecipe("Recipe must contain at least one ingredient");
+  }
+  for (const ingredient of recipe.ingredients) {
+    if (
+      ingredient.name.trim().length === 0 ||
+      ingredient.original.trim().length === 0
+    ) {
+      throw invalidRecipe("Recipe ingredients must contain meaningful text");
+    }
+    if (
+      ingredient.quantity !== null &&
+      (!Number.isFinite(ingredient.quantity) || ingredient.quantity <= 0)
+    ) {
+      throw invalidRecipe(
+        "Explicit ingredient quantities must be greater than zero",
+      );
+    }
+  }
+  if (
+    recipe.steps.length === 0 ||
+    recipe.steps.some((step: string): boolean => step.trim().length === 0)
+  ) {
+    throw invalidRecipe("Recipe must contain at least one non-empty step");
+  }
+  if (
+    recipe.servings !== null &&
+    (!Number.isFinite(recipe.servings) || recipe.servings <= 0)
+  ) {
+    throw invalidRecipe(
+      "Recipe servings must be greater than zero when supplied",
+    );
+  }
+}
+
+function invalidRecipe(message: string): PipelineError {
+  return new PipelineError({
+    code: "RECIPE_OUTPUT_INVALID",
+    message,
+    stage: "validate",
+    retryable: false,
+  });
 }
 
 export function createLinearFlow(

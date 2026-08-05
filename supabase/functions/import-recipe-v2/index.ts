@@ -50,9 +50,8 @@ export interface IEdgeRuntimeBackgroundTasks {
 /**
  * Creates the deployable handler. Production requires Supabase service-role
  * credentials, IMPORT_WORKER_SECRET, OPENROUTER_API_KEY, and OPENROUTER_MODEL.
- * OPENROUTER_MODEL is intentionally mandatory: use qwen/qwen3.6-plus for the
- * pinned reliability evaluation, or explicitly choose another model such as
- * openrouter/free for local or cost-constrained trials.
+ * OPENROUTER_MODEL is intentionally mandatory. The evaluated low-cost model is
+ * deepseek/deepseek-v4-flash; deployments can explicitly pin another model.
  */
 export function createDefaultHandler(
   options: DefaultHandlerOptions = {},

@@ -15,6 +15,7 @@ import {
 import {
   OpenRouterNormalizer,
   type OpenRouterTransport,
+  prepareRecipeSourceContent,
 } from "../openrouter-normalizer.ts";
 import {
   type ClaimedRecipeImport,
@@ -321,7 +322,7 @@ const openRouterFailureCases: readonly OpenRouterFailureCase[] = [
     name: "missing choices",
     transport_factory: (): OpenRouterTransport => responseTransport("{}"),
     expected_code: "RECIPE_OUTPUT_INVALID",
-    expected_retryable: false,
+    expected_retryable: true,
     expected_message: "OpenRouter response did not contain a choice",
   },
   {
@@ -329,7 +330,7 @@ const openRouterFailureCases: readonly OpenRouterFailureCase[] = [
     transport_factory: (): OpenRouterTransport =>
       responseTransport(JSON.stringify({ choices: [{}] })),
     expected_code: "RECIPE_OUTPUT_INVALID",
-    expected_retryable: false,
+    expected_retryable: true,
     expected_message: "OpenRouter response did not contain a message",
   },
   {
@@ -337,7 +338,7 @@ const openRouterFailureCases: readonly OpenRouterFailureCase[] = [
     transport_factory: (): OpenRouterTransport =>
       responseTransport(openRouterEnvelope("   ")),
     expected_code: "RECIPE_OUTPUT_INVALID",
-    expected_retryable: false,
+    expected_retryable: true,
     expected_message: "OpenRouter message content was empty or not text",
   },
   {
@@ -345,7 +346,7 @@ const openRouterFailureCases: readonly OpenRouterFailureCase[] = [
     transport_factory: (): OpenRouterTransport =>
       responseTransport(openRouterEnvelope(invalidRecipeSchemaJson)),
     expected_code: "RECIPE_OUTPUT_INVALID",
-    expected_retryable: false,
+    expected_retryable: true,
     expected_message: "AI normalization returned an incomplete recipe",
   },
 ];
@@ -705,12 +706,12 @@ const workerAiFailureCases: readonly WorkerAiFailureCase[] = [
     expected_status: "retry_wait",
   },
   {
-    name: "non-retryable invalid recipe output",
+    name: "retryable malformed recipe output",
     transport_factory: (): OpenRouterTransport =>
       responseTransport(openRouterEnvelope(invalidRecipeSchemaJson)),
     expected_code: "RECIPE_OUTPUT_INVALID",
-    expected_retryable: false,
-    expected_status: "failed",
+    expected_retryable: true,
+    expected_status: "retry_wait",
   },
 ];
 
@@ -812,7 +813,7 @@ Deno.test(
       assertEquals(response.status, 204);
     }
 
-    assertEquals(aiCalls, 3);
+    assertEquals(aiCalls, 6);
     assertDeepEquals(gateway.finishStatuses, [
       "retry_wait",
       "retry_wait",
@@ -939,11 +940,16 @@ Deno.test("OpenRouter adapter requires strict structured output and validates th
   assertEquals(draft.parse_confidence, 0.88);
 
   const provider: unknown = requestBody?.["provider"];
+  const reasoning: unknown = requestBody?.["reasoning"];
   const response_format: unknown = requestBody?.["response_format"];
   assertEquals(requestBody?.["model"], "qwen/qwen3.6-plus");
   assertEquals(
     isRecord(provider) ? provider["require_parameters"] : undefined,
     true,
+  );
+  assertEquals(
+    isRecord(reasoning) ? reasoning["effort"] : undefined,
+    "none",
   );
   assertEquals(
     isRecord(response_format) ? response_format["type"] : undefined,
@@ -955,13 +961,46 @@ Deno.test("OpenRouter adapter requires strict structured output and validates th
   assertEquals(isRecord(json_schema) ? json_schema["strict"] : undefined, true);
 });
 
-Deno.test("OpenRouter rejects non-JSON message content as a non-retryable output error", async () => {
+Deno.test("OpenRouter accepts a fenced JSON response after sanitizing model output", async () => {
   const transport: OpenRouterTransport = {
     fetch(_input: string, _init: RequestInit): Promise<Response> {
       return Promise.resolve(
         new Response(
           JSON.stringify({
-            choices: [{ message: { content: "```json {} ```" } }],
+            choices: [{
+              message: {
+                content: `Here is the extracted recipe:\n\`\`\`json\n${
+                  JSON.stringify({
+                    title: "Fenced recipe",
+                    description: null,
+                    ingredients: [{
+                      id: "ingredient-1",
+                      originalText: "1 cup rice",
+                      quantity: 1,
+                      unit: "cup",
+                      name: "rice",
+                      notes: null,
+                      sortOrder: 0,
+                    }],
+                    steps: [{
+                      id: "step-1",
+                      instruction: "Cook the rice.",
+                      timerDurationMinutes: null,
+                      sortOrder: 0,
+                    }],
+                    servings: 2,
+                    prepTimeMinutes: null,
+                    cookTimeMinutes: 20,
+                    totalTimeMinutes: 20,
+                    images: [],
+                    cuisineType: null,
+                    dietaryTags: [],
+                    parseConfidence: 0.9,
+                    status: "ready",
+                  })
+                }\n\`\`\`\nEnd of response.`,
+              },
+            }],
           }),
           { status: 200 },
         ),
@@ -974,6 +1013,93 @@ Deno.test("OpenRouter rejects non-JSON message content as a non-retryable output
     transport,
   });
 
+  const result: NormalizedRecipeDraft = await normalizer.normalize({
+    source_url,
+    resolved_url: source_url,
+    content: "recipe content",
+    attempt: 1,
+  });
+  assertEquals(result.title, "Fenced recipe");
+});
+
+Deno.test("OpenRouter automatically retries malformed recipe output", async () => {
+  let calls: number = 0;
+  const transport: OpenRouterTransport = {
+    fetch(_input: string, _init: RequestInit): Promise<Response> {
+      calls += 1;
+      if (calls === 1) {
+        return Promise.resolve(new Response(openRouterEnvelope("not json")));
+      }
+      return Promise.resolve(
+        new Response(openRouterEnvelope(JSON.stringify({
+          title: "Recovered recipe",
+          description: null,
+          ingredients: [{
+            id: "ingredient-1",
+            originalText: "2 eggs",
+            quantity: 2,
+            unit: null,
+            name: "eggs",
+            notes: null,
+            sortOrder: 0,
+          }],
+          steps: [{
+            id: "step-1",
+            instruction: "Whisk the eggs.",
+            timerDurationMinutes: null,
+            sortOrder: 0,
+          }],
+          servings: 1,
+          prepTimeMinutes: 2,
+          cookTimeMinutes: null,
+          totalTimeMinutes: 2,
+          images: [],
+          cuisineType: null,
+          dietaryTags: [],
+          parseConfidence: 0.85,
+          status: "ready",
+        }))),
+      );
+    },
+  };
+  const normalizer: OpenRouterNormalizer = new OpenRouterNormalizer({
+    api_key: "test-key",
+    model: "openrouter/free",
+    transport,
+  });
+
+  const result: NormalizedRecipeDraft = await normalizer.normalize({
+    source_url,
+    resolved_url: source_url,
+    content: "recipe content",
+    attempt: 1,
+  });
+
+  assertEquals(calls, 2);
+  assertEquals(result.title, "Recovered recipe");
+});
+
+Deno.test("OpenRouter bounds a stalled response body", async () => {
+  const transport: OpenRouterTransport = {
+    fetch(_input: string, _init: RequestInit): Promise<Response> {
+      return Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(): Promise<void> {
+              return new Promise<void>(() => undefined);
+            },
+          }),
+        ),
+      );
+    },
+  };
+  const normalizer: OpenRouterNormalizer = new OpenRouterNormalizer({
+    api_key: "test-key",
+    model: "openrouter/free",
+    timeout_ms: 5,
+    transport,
+  });
+
   try {
     await normalizer.normalize({
       source_url,
@@ -981,12 +1107,96 @@ Deno.test("OpenRouter rejects non-JSON message content as a non-retryable output
       content: "recipe content",
       attempt: 1,
     });
-    throw new Error("Expected strict JSON validation to fail");
+    throw new Error("Expected the response body to time out");
   } catch (error) {
-    assertEquals(error instanceof PipelineError, true);
-    assertEquals((error as PipelineError).code, "RECIPE_OUTPUT_INVALID");
-    assertEquals((error as PipelineError).retryable, false);
+    const normalizedError: PipelineError = pipelineError(error);
+    assertEquals(
+      normalizedError.message,
+      "OpenRouter response body exceeded its timeout",
+    );
+    assertEquals(normalizedError.retryable, true);
   }
+});
+
+Deno.test("OpenRouter accepts a complete JSON envelope without waiting for stream close", async () => {
+  const modelOutput: string = JSON.stringify({
+    title: "Streamed recipe",
+    description: null,
+    ingredients: [{
+      id: "ingredient-1",
+      originalText: "1 cup rice",
+      quantity: 1,
+      unit: "cup",
+      name: "rice",
+      notes: null,
+      sortOrder: 0,
+    }],
+    steps: [{
+      id: "step-1",
+      instruction: "Cook the rice.",
+      timerDurationMinutes: null,
+      sortOrder: 0,
+    }],
+    servings: 2,
+    prepTimeMinutes: null,
+    cookTimeMinutes: 20,
+    totalTimeMinutes: 20,
+    images: [],
+    cuisineType: null,
+    dietaryTags: [],
+    parseConfidence: 0.9,
+    status: "ready",
+  });
+  const envelope: Uint8Array = new TextEncoder().encode(
+    openRouterEnvelope(modelOutput),
+  );
+  const transport: OpenRouterTransport = {
+    fetch(_input: string, _init: RequestInit): Promise<Response> {
+      let sent: boolean = false;
+      return Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller): Promise<void> {
+              if (!sent) {
+                sent = true;
+                controller.enqueue(envelope);
+                return Promise.resolve();
+              }
+              return new Promise<void>(() => undefined);
+            },
+          }),
+        ),
+      );
+    },
+  };
+  const normalizer: OpenRouterNormalizer = new OpenRouterNormalizer({
+    api_key: "test-key",
+    model: "openrouter/free",
+    timeout_ms: 50,
+    transport,
+  });
+
+  const result: NormalizedRecipeDraft = await normalizer.normalize({
+    source_url,
+    resolved_url: source_url,
+    content: "recipe content",
+    attempt: 1,
+  });
+  assertEquals(result.title, "Streamed recipe");
+});
+
+Deno.test("OpenRouter receives visible recipe text instead of page scripts and styles", () => {
+  const prepared: string = prepareRecipeSourceContent(`
+    <style>.ingredient { color: red; }</style>
+    <script>window.analytics = { secret: true };</script>
+    <h1>Tomato Soup</h1>
+    <h2>Ingredients</h2>
+    <p>2 &amp; 1/2 cups tomatoes</p>
+  `);
+  assertEquals(prepared.includes("window.analytics"), false);
+  assertEquals(prepared.includes("color: red"), false);
+  assertEquals(prepared.includes("Tomato Soup"), true);
+  assertEquals(prepared.includes("2 & 1/2 cups tomatoes"), true);
 });
 
 Deno.test("Supabase gateway maps Auth and all four RPC contracts", async () => {

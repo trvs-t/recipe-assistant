@@ -149,7 +149,7 @@ function ingredientsArray(value: unknown): readonly RecipeIngredient[] | null {
     ) ?? name;
     const quantity: number | null = strictNullableNumber(
       item["quantity"],
-      0,
+      Number.MIN_VALUE,
       "quantity",
     );
     const unit: string | null = strictNullableString(item["unit"], "unit");

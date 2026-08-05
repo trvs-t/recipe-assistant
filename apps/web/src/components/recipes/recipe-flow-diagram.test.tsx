@@ -7,7 +7,13 @@ import {
   type RecipeFlowNode,
 } from './recipe-flow-diagram';
 
-import type { IRecipe, IRecipeFlow, IRecipeFlowNode } from '@/features/recipes/contracts';
+import type {
+  IRecipe,
+  IRecipeFlow,
+  IRecipeFlowEdge,
+  IRecipeFlowNode,
+  IRecipeStep,
+} from '@/features/recipes/contracts';
 
 const recipe: IRecipe = {
   id: 'flow-test-recipe',
@@ -88,6 +94,31 @@ describe('recipe flow diagram helpers', (): void => {
       ['node:step-oil', 'node:step-garlic'],
       ['node:step-garlic', 'node:step-finish'],
     ]);
+  });
+
+  it('labels a valid linear derivation as fallback rather than enrichment', (): void => {
+    const linearRecipe: IRecipe = {
+      ...recipe,
+      flow: {
+        derivation: 'linear_fallback',
+        nodes: recipe.steps.map((step: IRecipeStep): IRecipeFlowNode => ({
+          id: `node:${step.id}`,
+          stepId: step.id,
+          ingredientIds: [],
+        })),
+        edges: recipe.steps.slice(1).map((step: IRecipeStep, index: number): IRecipeFlowEdge => ({
+          id: `edge:${recipe.steps[index]?.id}:${step.id}`,
+          fromNodeId: `node:${recipe.steps[index]?.id}`,
+          toNodeId: `node:${step.id}`,
+          kind: 'sequence',
+        })),
+      },
+    };
+
+    const graph = buildRecipeFlowGraph(linearRecipe);
+
+    expect(graph.usedFallback).toBe(true);
+    expect(graph.flow.derivation).toBe('linear_fallback');
   });
 
   it('builds source and ingredient labels from recipe data', (): void => {

@@ -2,6 +2,10 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test';
 
 test.setTimeout(120_000);
 
+const requestedRecipeUrl: string =
+  process.env.LOCAL_E2E_RECIPE_URL ??
+  'https://www.recipesfromitaly.com/tiramisu-original-italian-recipe/';
+
 test('local authenticated import survives refresh and is added to the library', async ({
   page,
 }: {
@@ -11,7 +15,7 @@ test('local authenticated import survives refresh and is added to the library', 
   await expect(page.getByText('Connected as dev@example.com')).toBeVisible();
 
   await page.goto('/import');
-  await page.getByRole('button', { name: 'Use a sample recipe URL' }).click();
+  await page.getByLabel('Recipe URL').fill(requestedRecipeUrl);
   await page.getByRole('button', { name: 'Import recipe' }).click();
 
   await expect(page).toHaveURL(/\/import\/[0-9a-f-]{36}$/);
@@ -26,7 +30,7 @@ test('local authenticated import survives refresh and is added to the library', 
   expect(recipeHeading).not.toBeNull();
   await expect(page.getByRole('link', { name: 'Open source' })).toHaveAttribute(
     'href',
-    'https://www.justonecookbook.com/miso-salmon/',
+    requestedRecipeUrl,
   );
 
   await page.getByRole('link', { name: 'Back to library' }).click();

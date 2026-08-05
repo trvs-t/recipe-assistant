@@ -17,9 +17,9 @@ No additional product decision blocks the first vertical slice.
 
 Before a production deployment, choose a pinned OpenRouter model and approve its
 cost envelope. `OPENROUTER_MODEL` is intentionally configuration rather than a
-hard-coded preview slug. `qwen/qwen3.6-plus` is the current candidate for
-reliability evaluation; `openrouter/free` is suitable for cost-constrained local
-trials but is not deterministic enough to be the launch baseline. The worker
+hard-coded preview slug. `deepseek/deepseek-v4-flash` is the evaluated low-cost
+baseline; `openrouter/free` is suitable for cost-constrained local trials but is
+not deterministic enough to be the launch baseline. The worker
 trigger is now locked: each newly queued submission receives a best-effort
 immediate background kick, and a one-minute scheduled pull recovers missed kicks
 and expired leases.
