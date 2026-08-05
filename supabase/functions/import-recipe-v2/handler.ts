@@ -9,6 +9,7 @@ import {
 } from "./supabase-adapter.ts";
 import {
   type AiNormalizationAdapter,
+  type IngredientLinkingAdapter,
   type ImportStage,
   type SourceFetcher,
 } from "./types.ts";
@@ -33,6 +34,7 @@ export interface ImportHandlerDependencies {
   readonly gateway: RecipeImportGateway;
   readonly source_fetcher: SourceFetcher;
   readonly ai_normalizer: AiNormalizationAdapter;
+  readonly ingredient_linker?: IngredientLinkingAdapter;
   readonly worker_secret: string;
   readonly visibility_timeout_seconds?: number;
   readonly retry_delay_seconds?:
@@ -165,6 +167,7 @@ async function processNextQueuedImport(
     gateway: dependencies.gateway,
     source_fetcher: dependencies.source_fetcher,
     ai_normalizer: dependencies.ai_normalizer,
+    ingredient_linker: dependencies.ingredient_linker,
     retry_delay_seconds: dependencies.retry_delay_seconds,
   });
   return true;

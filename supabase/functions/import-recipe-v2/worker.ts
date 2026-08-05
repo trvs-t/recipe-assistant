@@ -1,6 +1,8 @@
 import { normalizeRecipeDraft } from "./ai-normalizer.ts";
 import {
+  type CanonicalIngredientPayload,
   type CanonicalRecipePayload,
+  type CanonicalStepPayload,
   mapToCanonicalRecipe,
 } from "./canonical-recipe.ts";
 import {
@@ -15,9 +17,18 @@ import {
   type RecipeImportWorkerStage,
 } from "./supabase-adapter.ts";
 import {
+  createDeterministicIngredientFlow,
+  mergeIngredientFlows,
+} from "./ingredient-linker.ts";
+import {
   type AiNormalizationAdapter,
+  type IngredientLinkingAdapter,
+  type IngredientLinkingIngredient,
+  type IngredientLinkingInput,
+  type IngredientLinkingStep,
   type ImportStage,
   type NormalizedRecipe,
+  type RecipeFlow,
   type SourceDocument,
   type SourceFetcher,
   type StructuredError,
@@ -27,6 +38,7 @@ export interface ImportWorkerDependencies {
   readonly gateway: RecipeImportGateway;
   readonly source_fetcher: SourceFetcher;
   readonly ai_normalizer: AiNormalizationAdapter;
+  readonly ingredient_linker?: IngredientLinkingAdapter;
   readonly retry_delay_seconds?: (claim: ClaimedRecipeImport) => number;
 }
 
@@ -79,9 +91,13 @@ export async function processClaimedImport(
 
     stage = "validate";
     await markStage(dependencies.gateway, claim, "validate");
-    const payload: CanonicalRecipePayload = mapToCanonicalRecipe(
+    const basePayload: CanonicalRecipePayload = mapToCanonicalRecipe(
       recipe,
       claim.source_url,
+    );
+    const payload: CanonicalRecipePayload = await enrichIngredientLinks(
+      basePayload,
+      dependencies.ingredient_linker,
     );
 
     stage = "persist";
@@ -131,6 +147,74 @@ export async function processClaimedImport(
       });
     }
   }
+}
+
+async function enrichIngredientLinks(
+  payload: CanonicalRecipePayload,
+  ingredient_linker: IngredientLinkingAdapter | undefined,
+): Promise<CanonicalRecipePayload> {
+  if (hasLinksForEveryStep(payload.flow, payload.steps)) {
+    return payload;
+  }
+
+  const steps: readonly IngredientLinkingStep[] = payload.steps.map(
+    (step: CanonicalStepPayload): IngredientLinkingStep => ({
+      id: step.id,
+      instruction: step.instruction,
+    }),
+  );
+  const ingredients: readonly IngredientLinkingIngredient[] = payload.ingredients.map(
+    (ingredient: CanonicalIngredientPayload): IngredientLinkingIngredient => ({
+      id: ingredient.id,
+      originalText: ingredient.originalText,
+      name: ingredient.name,
+    }),
+  );
+  const baseFlow: RecipeFlow | null = payload.flow.derivation === "enriched"
+    ? payload.flow
+    : null;
+  const deterministicFlow: RecipeFlow | null = mergeIngredientFlows(
+    baseFlow,
+    createDeterministicIngredientFlow({ ingredients, steps }),
+    steps,
+  );
+  if (hasLinksForEveryStep(deterministicFlow, payload.steps) || ingredient_linker === undefined) {
+    return deterministicFlow === null ? payload : { ...payload, flow: deterministicFlow };
+  }
+
+  try {
+    const input: IngredientLinkingInput = deterministicFlow === null
+      ? { ingredients, steps }
+      : { ingredients, steps, deterministic_flow: deterministicFlow };
+    const modelFlow: RecipeFlow | null = await ingredient_linker.link(input);
+    const linkedFlow: RecipeFlow | null = mergeIngredientFlows(
+      deterministicFlow,
+      modelFlow,
+      steps,
+    );
+    return linkedFlow === null ? payload : { ...payload, flow: linkedFlow };
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: "ingredient_linking_fallback",
+      message: error instanceof Error ? error.message : "Ingredient linking failed",
+    }));
+    return deterministicFlow === null ? payload : { ...payload, flow: deterministicFlow };
+  }
+}
+
+function hasLinksForEveryStep(
+  flow: RecipeFlow | null,
+  steps: readonly CanonicalStepPayload[],
+): boolean {
+  if (flow === null || flow.derivation !== "enriched") {
+    return false;
+  }
+  const nodesByStepId: Map<string, readonly string[]> = new Map<string, readonly string[]>(
+    flow.nodes.map((node): [string, readonly string[]] => [node.stepId, node.ingredientIds]),
+  );
+  return steps.every((step: CanonicalStepPayload): boolean =>
+    (nodesByStepId.get(step.id)?.length ?? 0) > 0,
+  );
 }
 
 async function fetchUrlSource(

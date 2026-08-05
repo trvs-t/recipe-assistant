@@ -7,6 +7,7 @@ import {
 } from "./handler.ts";
 import {
   createOpenRouterNormalizerFromEnv,
+  type OpenRouterNormalizer,
   type EnvironmentReader,
 } from "./openrouter-normalizer.ts";
 import { createSourceFetcher } from "./source-fetcher.ts";
@@ -14,12 +15,17 @@ import {
   createSupabaseRecipeImportGateway,
   type RecipeImportGateway,
 } from "./supabase-adapter.ts";
-import { type AiNormalizationAdapter, type SourceFetcher } from "./types.ts";
+import {
+  type AiNormalizationAdapter,
+  type IngredientLinkingAdapter,
+  type SourceFetcher,
+} from "./types.ts";
 
 export * from "./ai-normalizer.ts";
 export * from "./canonical-recipe.ts";
 export * from "./errors.ts";
 export * from "./handler.ts";
+export * from "./ingredient-linker.ts";
 export * from "./json-ld-extractor.ts";
 export * from "./logger.ts";
 export * from "./openrouter-normalizer.ts";
@@ -38,6 +44,7 @@ export interface DefaultHandlerOptions {
   readonly gateway?: RecipeImportGateway;
   readonly source_fetcher?: SourceFetcher;
   readonly ai_normalizer?: AiNormalizationAdapter;
+  readonly ingredient_linker?: IngredientLinkingAdapter;
   readonly worker_secret?: string;
   readonly visibility_timeout_seconds?: number;
   readonly background_task_runner?: IImportBackgroundTaskRunner;
@@ -65,12 +72,22 @@ export function createDefaultHandler(
     env,
     options.client,
   );
-  const ai_normalizer: AiNormalizationAdapter = options.ai_normalizer ??
-    createOpenRouterNormalizerFromEnv(env);
+  const default_openrouter_normalizer: OpenRouterNormalizer | undefined =
+    options.ai_normalizer === undefined
+      ? createOpenRouterNormalizerFromEnv(env)
+      : undefined;
+  const ai_normalizer: AiNormalizationAdapter | undefined =
+    options.ai_normalizer ?? default_openrouter_normalizer;
+  if (ai_normalizer === undefined) {
+    throw new Error("An AI normalization adapter is required");
+  }
+  const ingredient_linker: IngredientLinkingAdapter | undefined =
+    options.ingredient_linker ?? default_openrouter_normalizer;
   const dependencies: ImportHandlerDependencies = {
     gateway,
     source_fetcher: options.source_fetcher ?? createSourceFetcher(),
     ai_normalizer,
+    ingredient_linker,
     worker_secret,
     visibility_timeout_seconds: options.visibility_timeout_seconds,
     background_task_runner: options.background_task_runner ??

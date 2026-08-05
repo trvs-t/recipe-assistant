@@ -89,7 +89,10 @@ export function mapToCanonicalRecipe(
     },
   );
 
-  const flow: RecipeFlow = validFlow(recipe.flow, steps) ??
+  const ingredientIds: Set<string> = new Set<string>(
+    ingredients.map((ingredient: CanonicalIngredientPayload): string => ingredient.id),
+  );
+  const flow: RecipeFlow = validFlow(recipe.flow, steps, ingredientIds) ??
     createLinearFlow(steps);
   const images: readonly string[] = recipe.images !== undefined
     ? [...recipe.images]
@@ -216,6 +219,7 @@ function recipeSteps(
 function validFlow(
   flow: RecipeFlow | undefined,
   steps: readonly CanonicalStepPayload[],
+  ingredientIds: ReadonlySet<string>,
 ): RecipeFlow | null {
   if (flow === undefined || flow.derivation !== "enriched") {
     return null;
@@ -236,7 +240,11 @@ function validFlow(
     nodeIds.add(node.id);
     coveredSteps.add(node.stepId);
     for (const ingredient_id of node.ingredientIds) {
-      if (typeof ingredient_id !== "string" || ingredient_id.length === 0) {
+      if (
+        typeof ingredient_id !== "string" ||
+        ingredient_id.length === 0 ||
+        !ingredientIds.has(ingredient_id)
+      ) {
         return null;
       }
     }

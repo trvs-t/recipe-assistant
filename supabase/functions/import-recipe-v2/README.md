@@ -11,6 +11,12 @@ This function has two explicit POST actions:
   one queue message, processes one attempt, and returns `204` when the queue is
   empty or the attempt has been durably finalized.
 
+When a normalized recipe has no trustworthy ingredient links, the worker first
+applies deterministic text matching and then makes one bounded OpenRouter
+linking pass for unresolved references. Only known ingredient IDs and links at
+or above the confidence threshold are persisted; otherwise the linear flow
+fallback remains in place.
+
 When Supabase `EdgeRuntime.waitUntil` is available, a newly queued submission
 also schedules one best-effort worker claim before returning `202`. This is a
 latency shortcut only: failure to start or finish that background task leaves

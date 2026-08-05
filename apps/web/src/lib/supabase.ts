@@ -5,6 +5,7 @@ import {
   getDemoRecipes,
   getDemoRecipeSummaries,
 } from '@/features/recipes/demo-data';
+import { buildDeterministicIngredientFlow } from '@/features/recipes/ingredient-linking';
 import {
   isRecipeStatus,
   type IImportRequest,
@@ -199,6 +200,7 @@ export interface ISupabaseAdapter {
   getRecipe(recipeId: string): Promise<IRecipe | null>;
   updateIngredient(recipeId: string, ingredientId: string, input: IIngredientEditInput): Promise<void>;
   addIngredientVariation(recipeId: string, input: IIngredientVariationInput): Promise<void>;
+  autoLinkRecipe(recipeId: string): Promise<void>;
   submitImport(request: IImportRequestWithIdempotencyKey): Promise<IImportSubmission>;
   getImportSubmission(submissionId: string): Promise<IImportSubmission | null>;
 }
@@ -786,6 +788,31 @@ function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
     }
   }
 
+  async function autoLinkRecipe(recipeId: string): Promise<void> {
+    const recipe: IRecipe | null = await getRemoteRecipe(recipeId);
+    if (recipe === null) {
+      throw new SupabaseAdapterError('That recipe is no longer available.');
+    }
+    const flow = buildDeterministicIngredientFlow(recipe);
+    if (flow === null) {
+      throw new SupabaseAdapterError('No ingredient mentions were clear enough to link.');
+    }
+
+    const result = await client
+      .from('recipes')
+      .update({ flow_graph: flow })
+      .eq('id', recipeId)
+      .select('id')
+      .maybeSingle();
+
+    if (result.error) {
+      throw new SupabaseAdapterError('Unable to update this recipe\'s ingredient links.', result.error);
+    }
+    if (result.data === null) {
+      throw new SupabaseAdapterError('This recipe is no longer available.');
+    }
+  }
+
   return {
     mode: 'remote',
     client,
@@ -814,6 +841,7 @@ function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
     getRecipe: getRemoteRecipe,
     updateIngredient,
     addIngredientVariation,
+    autoLinkRecipe,
     async submitImport(request: IImportRequestWithIdempotencyKey): Promise<IImportSubmission> {
       const sourceUrl: string | null = request.sourceUrl?.trim() || null;
       const sourceText: string | null = request.sourceText?.trim() || null;
@@ -943,6 +971,15 @@ function createDemoAdapter(): ISupabaseAdapter {
         note: input.note,
         variationOfId: sourceIngredient.id,
       });
+      recipe.updatedAt = new Date().toISOString();
+    },
+    async autoLinkRecipe(recipeId: string): Promise<void> {
+      const recipe: IRecipe = getDemoRecipeForMutation(recipes, recipeId);
+      const flow = buildDeterministicIngredientFlow(recipe);
+      if (flow === null) {
+        throw new SupabaseAdapterError('No ingredient mentions were clear enough to link.');
+      }
+      recipe.flow = flow;
       recipe.updatedAt = new Date().toISOString();
     },
     async submitImport(request: IImportRequestWithIdempotencyKey): Promise<IImportSubmission> {

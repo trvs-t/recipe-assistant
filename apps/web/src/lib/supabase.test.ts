@@ -64,6 +64,15 @@ describe('Supabase adapter', (): void => {
     expect(recipe?.ingredients.some((item) => item.variationOfId === ingredientId && item.name === 'firm tofu')).toBe(true);
   });
 
+  it('repairs clear ingredient links in demo mode', async (): Promise<void> => {
+    const adapter = createSupabaseAdapter({ VITE_SUPABASE_URL: 'not-a-url' });
+    await adapter.autoLinkRecipe('demo-citrus-soba');
+
+    const recipe = await adapter.getRecipe('demo-citrus-soba');
+    expect(recipe?.flow?.derivation).toBe('enriched');
+    expect(recipe?.flow?.nodes.some((node) => node.ingredientIds.length > 0)).toBe(true);
+  });
+
   it('recognizes every durable import status and only terminal statuses stop polling', (): void => {
     const statuses: string[] = [
       'queued',

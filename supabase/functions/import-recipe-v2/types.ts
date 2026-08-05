@@ -100,6 +100,27 @@ export interface RecipeFlow {
   readonly edges: readonly RecipeFlowEdge[];
 }
 
+export interface IngredientLinkingIngredient {
+  readonly id: string;
+  readonly originalText: string;
+  readonly name: string;
+}
+
+export interface IngredientLinkingStep {
+  readonly id: string;
+  readonly instruction: string;
+}
+
+export interface IngredientLinkingInput {
+  readonly ingredients: readonly IngredientLinkingIngredient[];
+  readonly steps: readonly IngredientLinkingStep[];
+  readonly deterministic_flow?: RecipeFlow;
+}
+
+export interface IngredientLinkingAdapter {
+  link(input: IngredientLinkingInput): Promise<RecipeFlow | null>;
+}
+
 export interface NormalizedRecipe {
   readonly title: string;
   readonly description: string | null;

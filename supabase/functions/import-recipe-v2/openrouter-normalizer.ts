@@ -1,9 +1,13 @@
 import { PipelineError } from "./errors.ts";
+import { parseIngredientLinkOutput } from "./ingredient-linker.ts";
 import { normalizeRecipeDraft } from "./ai-normalizer.ts";
 import {
   type AiNormalizationAdapter,
   type AiNormalizationInput,
+  type IngredientLinkingAdapter,
+  type IngredientLinkingInput,
   type NormalizedRecipeDraft,
+  type RecipeFlow,
 } from "./types.ts";
 
 export const RECOMMENDED_OPENROUTER_MODEL: string =
@@ -36,7 +40,8 @@ export interface OpenRouterNormalizerOptions {
   readonly site_name?: string;
 }
 
-export class OpenRouterNormalizer implements AiNormalizationAdapter {
+export class OpenRouterNormalizer
+  implements AiNormalizationAdapter, IngredientLinkingAdapter {
   private readonly api_key: string;
   private readonly model: string;
   private readonly endpoint: string;
@@ -104,6 +109,25 @@ export class OpenRouterNormalizer implements AiNormalizationAdapter {
     throw invalidAiResponse(
       "OpenRouter did not return a usable recipe payload",
     );
+  }
+
+  async link(input: IngredientLinkingInput): Promise<RecipeFlow | null> {
+    const response: Response = await this.requestIngredientLinks(input);
+    const responseText: string = await readResponseText(
+      response,
+      this.timeout_ms,
+    );
+    const responseBody: unknown = parseResponseJson(responseText);
+    const content: string = extractMessageContent(responseBody);
+    let linkOutput: unknown;
+    try {
+      linkOutput = JSON.parse(extractJsonObjectText(content));
+    } catch {
+      throw invalidAiResponse(
+        "OpenRouter returned ingredient links that are not strict JSON",
+      );
+    }
+    return parseIngredientLinkOutput(linkOutput, input);
   }
 
   private async normalizeOnce(
@@ -222,11 +246,111 @@ export class OpenRouterNormalizer implements AiNormalizationAdapter {
       });
     }
   }
+
+  private async requestIngredientLinks(
+    input: IngredientLinkingInput,
+  ): Promise<Response> {
+    const controller: AbortController = new AbortController();
+    const headers: Record<string, string> = {
+      authorization: `Bearer ${this.api_key}`,
+      "content-type": "application/json",
+    };
+    if (this.site_url !== undefined && this.site_url.trim().length > 0) {
+      headers["http-referer"] = this.site_url;
+    }
+    if (this.site_name !== undefined && this.site_name.trim().length > 0) {
+      headers["x-title"] = this.site_name;
+    }
+
+    const deterministicHint: string = input.deterministic_flow === undefined
+      ? "No deterministic links were found."
+      : JSON.stringify(input.deterministic_flow);
+    const body: Record<string, unknown> = {
+      model: this.model,
+      max_tokens: 1_600,
+      temperature: 0,
+      reasoning: { effort: "none" },
+      provider: { require_parameters: true },
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "ingredient_linking",
+          strict: true,
+          schema: INGREDIENT_LINKING_SCHEMA,
+        },
+      },
+      messages: [
+        {
+          role: "system",
+          content:
+            "Link recipe steps to the ingredient IDs they explicitly use. Return only JSON. Never create IDs, never infer a missing ingredient, and use confidence from 0 to 1. Only links at or above 0.7 will be saved.",
+        },
+        {
+          role: "user",
+          content: [
+            "Ingredients:",
+            JSON.stringify(input.ingredients),
+            "Steps:",
+            JSON.stringify(input.steps),
+            "Deterministic links are hints; preserve them and add only safe missing links:",
+            deterministicHint,
+          ].join("\n\n"),
+        },
+      ],
+    };
+
+    try {
+      const response: Response = await fetchWithTimeout(
+        this.transport,
+        this.endpoint,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        },
+        controller,
+        this.timeout_ms,
+      );
+
+      if (response.ok) {
+        return response;
+      }
+
+      const errorText: string = await readResponseText(
+        response,
+        this.timeout_ms,
+      );
+      throw new PipelineError({
+        code: "AI_NORMALIZATION_FAILED",
+        message: `OpenRouter ingredient linking returned HTTP ${response.status}`,
+        stage: "normalize",
+        retryable: isRetryableStatus(response.status),
+        details: {
+          status: response.status,
+          reason: errorText.slice(0, 300),
+        },
+      });
+    } catch (error) {
+      if (error instanceof PipelineError) {
+        throw error;
+      }
+      throw new PipelineError({
+        code: "AI_NORMALIZATION_FAILED",
+        message: "OpenRouter could not be reached for ingredient linking",
+        stage: "normalize",
+        retryable: true,
+        details: {
+          reason: error instanceof Error ? error.message : "AI request failed",
+        },
+      });
+    }
+  }
 }
 
 export function createOpenRouterNormalizerFromEnv(
   env: EnvironmentReader = Deno.env,
-): AiNormalizationAdapter {
+): OpenRouterNormalizer {
   const api_key: string = requiredEnvironment(env, "OPENROUTER_API_KEY");
   const model: string = requiredEnvironment(env, "OPENROUTER_MODEL");
   const timeoutText: string | undefined = env.get("OPENROUTER_TIMEOUT_MS");
@@ -332,6 +456,30 @@ export const RECIPE_NORMALIZATION_SCHEMA: Readonly<Record<string, unknown>> = {
     status: {
       type: "string",
       enum: ["draft", "ready", "needs_review"],
+    },
+  },
+};
+
+export const INGREDIENT_LINKING_SCHEMA: Readonly<Record<string, unknown>> = {
+  type: "object",
+  additionalProperties: false,
+  required: ["links"],
+  properties: {
+    links: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["stepId", "ingredientIds", "confidence"],
+        properties: {
+          stepId: { type: "string", minLength: 1 },
+          ingredientIds: {
+            type: "array",
+            items: { type: "string", minLength: 1 },
+          },
+          confidence: { type: "number", minimum: 0, maximum: 1 },
+        },
+      },
     },
   },
 };

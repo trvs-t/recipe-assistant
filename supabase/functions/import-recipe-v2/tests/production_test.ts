@@ -641,8 +641,9 @@ Deno.test("worker processes one claimed attempt with JSON-LD and canonical persi
   assertEquals(payload.ingredients[0]?.sortOrder, 0);
   assertEquals(payload.steps[0]?.id, "step:0");
   assertEquals(payload.steps[0]?.sortOrder, 0);
-  assertEquals(payload.flow.derivation, "linear_fallback");
+  assertEquals(payload.flow.derivation, "enriched");
   assertEquals(payload.flow.nodes[0]?.stepId, "step:0");
+  assertDeepEquals(payload.flow.nodes[0]?.ingredientIds, ["ingredient:0"]);
 });
 
 Deno.test("worker durably finalizes a retryable failure without an inline retry", async () => {
