@@ -12,7 +12,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { recipeQueryKeys, useImportSubmissionListQuery, useRecipeListQuery } from '@/features/recipes/queries';
-import { getSourceLabel, MAX_BULK_IMPORT_URLS, parseSourceUrls, type IParsedSourceUrls } from '@/lib/format';
+import {
+  getSourceLabel,
+  MAX_BULK_IMPORT_URLS,
+  parseSourceUrls,
+  validatePlainRecipeText,
+  type IParsedSourceUrls,
+} from '@/lib/format';
 import {
   createImportIdempotencyKey,
   isTerminalImportStatus,
@@ -43,7 +49,8 @@ type ImportCardState = 'submitting' | 'queued' | 'failed';
 
 interface ILibraryImport {
   clientId: string;
-  sourceUrl: string;
+  sourceUrl: string | null;
+  sourceText: string | null;
   state: ImportCardState;
   submissionId: string | null;
   message: string | null;
@@ -51,8 +58,10 @@ interface ILibraryImport {
 
 function LibraryPage(): ReactElement {
   const { sourceUrl: sourceUrlFromSearch } = Route.useSearch();
+  const [importMode, setImportMode] = useState<'url' | 'text'>('url');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [sourceUrls, setSourceUrls] = useState<string>(sourceUrlFromSearch ?? '');
+  const [sourceText, setSourceText] = useState<string>('');
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [libraryImports, setLibraryImports] = useState<ILibraryImport[]>([]);
@@ -79,6 +88,7 @@ function LibraryPage(): ReactElement {
       (submission: IImportSubmission): ILibraryImport => ({
         clientId: `server:${submission.id}`,
         sourceUrl: submission.sourceUrl,
+        sourceText: submission.sourceText,
         state: 'queued',
         submissionId: submission.id,
         message: submission.message,
@@ -106,7 +116,7 @@ function LibraryPage(): ReactElement {
     if (sourceUrlFromSearch !== undefined) {
       setSourceUrls(sourceUrlFromSearch);
       setValidationMessage(null);
-      document.getElementById('source-urls')?.focus();
+      document.getElementById('source-input')?.focus();
     }
   }, [sourceUrlFromSearch]);
 
@@ -135,6 +145,7 @@ function LibraryPage(): ReactElement {
   const submitLibraryImport = async (item: ILibraryImport): Promise<void> => {
     const request: IImportRequestWithIdempotencyKey = {
       sourceUrl: item.sourceUrl,
+      sourceText: item.sourceText ?? undefined,
       idempotencyKey: item.clientId,
     };
 
@@ -155,6 +166,30 @@ function LibraryPage(): ReactElement {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
+    if (importMode === 'text') {
+      const textError: string | null = validatePlainRecipeText(sourceText);
+      setValidationMessage(textError);
+      if (textError !== null) {
+        return;
+      }
+
+      const newImport: ILibraryImport = {
+        clientId: createImportIdempotencyKey(),
+        sourceUrl: null,
+        sourceText: sourceText.trim(),
+        state: 'submitting',
+        submissionId: null,
+        message: null,
+      };
+      setLibraryImports((currentImports: ILibraryImport[]): ILibraryImport[] => [newImport, ...currentImports]);
+      setSourceText('');
+      setValidationMessage(null);
+      setSubmitting(true);
+      await submitLibraryImport(newImport);
+      setSubmitting(false);
+      return;
+    }
+
     const parsed: IParsedSourceUrls = parseSourceUrls(sourceUrls);
     setValidationMessage(parsed.errorMessage);
 
@@ -174,6 +209,7 @@ function LibraryPage(): ReactElement {
     const newImports: ILibraryImport[] = parsed.urls.map((sourceUrl: string): ILibraryImport => ({
       clientId: createImportIdempotencyKey(),
       sourceUrl,
+      sourceText: null,
       state: 'submitting',
       submissionId: null,
       message: null,
@@ -190,7 +226,7 @@ function LibraryPage(): ReactElement {
     setSubmitting(false);
   };
 
-  const candidateCount: number = parseSourceUrls(sourceUrls).urls.length;
+  const candidateCount: number = importMode === 'url' ? parseSourceUrls(sourceUrls).urls.length : sourceText.trim().length > 0 ? 1 : 0;
 
   return (
     <div className="space-y-8">
@@ -213,36 +249,68 @@ function LibraryPage(): ReactElement {
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
                 <h2 className="font-display text-xl font-semibold tracking-tight">Import a recipe</h2>
-                <p className="mt-1 text-sm text-[var(--muted-foreground)]">Paste a link, or one per line for a batch.</p>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">Paste a link or recipe text to start a new library entry.</p>
               </div>
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--primary-soft)] text-[var(--primary)]">
                 <Link2 size={17} />
               </span>
             </div>
-            <form onSubmit={(event: FormEvent<HTMLFormElement>): void => void handleSubmit(event)}>
-              <Label className="sr-only" htmlFor="source-urls">Recipe URLs</Label>
-              <Textarea
-                aria-describedby={validationMessage !== null ? 'source-urls-message' : 'source-urls-hint'}
-                aria-invalid={validationMessage !== null}
-                className="min-h-24 resize-none leading-6"
-                id="source-urls"
-                onChange={(event: ChangeEvent<HTMLTextAreaElement>): void => {
-                  setSourceUrls(event.target.value);
+            <div aria-label="Import type" className="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-[var(--muted)] p-1" role="group">
+              <Button
+                aria-pressed={importMode === 'url'}
+                className={importMode === 'url' ? 'bg-[var(--card)] shadow-sm' : ''}
+                onClick={(): void => {
+                  setImportMode('url');
                   setValidationMessage(null);
                 }}
-                placeholder="Paste a recipe URL…"
-                value={sourceUrls}
+                type="button"
+                variant="ghost"
+              >
+                Recipe URL
+              </Button>
+              <Button
+                aria-pressed={importMode === 'text'}
+                className={importMode === 'text' ? 'bg-[var(--card)] shadow-sm' : ''}
+                onClick={(): void => {
+                  setImportMode('text');
+                  setValidationMessage(null);
+                }}
+                type="button"
+                variant="ghost"
+              >
+                Plain text
+              </Button>
+            </div>
+            <form onSubmit={(event: FormEvent<HTMLFormElement>): void => void handleSubmit(event)}>
+              <Label className="sr-only" htmlFor="source-input">{importMode === 'url' ? 'Recipe URLs' : 'Recipe text'}</Label>
+              <Textarea
+                aria-describedby={validationMessage !== null ? 'source-input-message' : 'source-input-hint'}
+                aria-invalid={validationMessage !== null}
+                className="min-h-32 resize-none leading-6"
+                id="source-input"
+                onChange={(event: ChangeEvent<HTMLTextAreaElement>): void => {
+                  if (importMode === 'url') {
+                    setSourceUrls(event.target.value);
+                  } else {
+                    setSourceText(event.target.value);
+                  }
+                  setValidationMessage(null);
+                }}
+                placeholder={importMode === 'url' ? 'Paste a recipe URL…' : 'Paste a recipe title, ingredients, and instructions…'}
+                value={importMode === 'url' ? sourceUrls : sourceText}
               />
               <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 {validationMessage !== null ? (
-                  <p className="text-sm text-[var(--destructive)]" id="source-urls-message">{validationMessage}</p>
+                  <p className="text-sm text-[var(--destructive)]" id="source-input-message">{validationMessage}</p>
                 ) : (
-                  <p className="text-xs text-[var(--muted-foreground)]" id="source-urls-hint">Up to {MAX_BULK_IMPORT_URLS} public recipe links.</p>
+                  <p className="text-xs text-[var(--muted-foreground)]" id="source-input-hint">
+                    {importMode === 'url' ? `Up to ${MAX_BULK_IMPORT_URLS} public recipe links.` : 'Paste at least 50 characters; the recipe will be parsed for review.'}
+                  </p>
                 )}
                 <Button className="shrink-0 sm:min-w-36" disabled={submitting} type="submit">
                   {submitting
                     ? 'Adding…'
-                    : candidateCount > 1
+                    : importMode === 'url' && candidateCount > 1
                       ? `Import ${candidateCount} recipes`
                       : 'Import recipe'}
                   <ArrowRight size={16} />
@@ -308,8 +376,10 @@ function LibraryPage(): ReactElement {
 function ImportingRecipeCard({ item }: { item: ILibraryImport }): ReactElement {
   const failed: boolean = item.state === 'failed';
   const title: string = failed
-    ? `Could not import from ${getSourceLabel(item.sourceUrl)}`
-    : `Importing from ${getSourceLabel(item.sourceUrl)}`;
+    ? `Could not import ${item.sourceUrl === null ? 'pasted recipe text' : `from ${getSourceLabel(item.sourceUrl)}`}`
+    : item.sourceUrl === null
+      ? 'Importing pasted recipe text'
+      : `Importing from ${getSourceLabel(item.sourceUrl)}`;
 
   return (
     <Card className={`flex min-h-56 flex-col overflow-hidden border-dashed shadow-none ${failed ? 'border-[var(--destructive)]/40' : 'border-[var(--primary)]/40'}`}>
@@ -319,7 +389,9 @@ function ImportingRecipeCard({ item }: { item: ILibraryImport }): ReactElement {
           {failed ? <CircleAlert className="text-[var(--destructive)]" size={18} /> : <LoaderCircle className="animate-spin text-[var(--primary)]" size={18} />}
         </div>
         <h3 className="mt-5 font-display text-xl font-semibold leading-tight tracking-tight">{title}</h3>
-        <p className="mt-2 truncate text-sm text-[var(--muted-foreground)]">{item.sourceUrl}</p>
+        <p className="mt-2 truncate text-sm text-[var(--muted-foreground)]">
+          {item.sourceUrl ?? item.sourceText ?? 'Pasted recipe text'}
+        </p>
         <div className="mt-auto pt-6">
           {item.submissionId !== null ? (
             <Link className={buttonVariants({ size: 'sm', variant: 'outline' })} params={{ submissionId: item.submissionId }} to="/import/$submissionId">

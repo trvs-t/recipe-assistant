@@ -29,6 +29,17 @@ describe('Supabase adapter', (): void => {
     expect(listedSubmissions.some((item) => item.id === submission.id)).toBe(true);
   });
 
+  it('keeps plain-text submission content local in demo mode', async (): Promise<void> => {
+    const adapter = createSupabaseAdapter({ VITE_SUPABASE_URL: 'not-a-url' });
+    const sourceText: string = 'Lemony rice bowl\n\nIngredients\n2 cups rice\n\nInstructions\nCook and serve.';
+    const submission = await adapter.submitImport({ sourceUrl: null, sourceText });
+    const restoredSubmission = await adapter.getImportSubmission(submission.id);
+
+    expect(submission.sourceUrl).toBeNull();
+    expect(submission.sourceText).toBe(sourceText);
+    expect(restoredSubmission?.sourceText).toBe(sourceText);
+  });
+
   it('recognizes every durable import status and only terminal statuses stop polling', (): void => {
     const statuses: string[] = [
       'queued',

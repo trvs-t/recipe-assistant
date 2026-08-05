@@ -109,7 +109,7 @@ export interface NormalizedRecipe {
   readonly prep_time_minutes: number | null;
   readonly cook_time_minutes: number | null;
   readonly image_url: string | null;
-  readonly source_url: string;
+  readonly source_url: string | null;
   readonly images?: readonly string[];
   readonly cuisine_type?: string | null;
   readonly dietary_tags?: readonly string[];
@@ -129,7 +129,7 @@ export interface NormalizedRecipeDraft {
   readonly prep_time_minutes: number | null;
   readonly cook_time_minutes: number | null;
   readonly image_url: string | null;
-  readonly source_url?: string;
+  readonly source_url?: string | null;
   readonly images?: readonly string[];
   readonly cuisine_type?: string | null;
   readonly dietary_tags?: readonly string[];
@@ -154,8 +154,8 @@ export interface SourceFetcher {
 }
 
 export interface AiNormalizationInput {
-  readonly source_url: string;
-  readonly resolved_url: string;
+  readonly source_url: string | null;
+  readonly resolved_url: string | null;
   readonly content: string;
   readonly attempt: number;
 }

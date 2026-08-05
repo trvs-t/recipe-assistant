@@ -24,6 +24,7 @@ interface IRecipeRow {
   id: string;
   title: string | null;
   source_url: string | null;
+  source_text: string | null;
   description: string | null;
   prep_time_minutes: number | null;
   cook_time_minutes: number | null;
@@ -58,7 +59,8 @@ interface IStepRow {
 interface IRecipeImportJobRow {
   id: string;
   user_id: string;
-  source_url: string;
+  source_url: string | null;
+  source_text: string | null;
   idempotency_key: string;
   status: string;
   attempt_count: number;
@@ -453,6 +455,7 @@ function mapRecipeRow(row: IRecipeRow, ingredients: IIngredientRow[], steps: ISt
     collection: row.cuisine_type?.trim() || 'My recipes',
     tags: row.dietary_tags ?? [],
     sourceUrl: row.source_url,
+    sourceText: row.source_text,
     servings: row.servings && row.servings > 0 ? row.servings : 2,
     prepMinutes: row.prep_time_minutes,
     cookMinutes: row.cook_time_minutes,
@@ -556,6 +559,7 @@ function mapImportJobRow(row: IRecipeImportJobRow): IImportSubmission {
     id: row.id,
     jobId: row.id,
     sourceUrl: row.source_url,
+    sourceText: row.source_text,
     status,
     submittedAt: row.created_at,
     recipeId: row.recipe_id,
@@ -597,6 +601,7 @@ function readDemoSubmission(value: unknown): IImportSubmission | null {
   const id: string | null = readString(value, 'id');
   const jobId: string | null = readString(value, 'jobId');
   const sourceUrl: string | null = readString(value, 'sourceUrl');
+  const sourceText: string | null = readString(value, 'sourceText');
   const submittedAt: string | null = readString(value, 'submittedAt');
   const rawStatus: string | null = readString(value, 'status');
   const message: string | null = readString(value, 'message');
@@ -605,7 +610,7 @@ function readDemoSubmission(value: unknown): IImportSubmission | null {
   if (
     id === null ||
     jobId === null ||
-    sourceUrl === null ||
+    (sourceUrl === null && sourceText === null) ||
     submittedAt === null ||
     rawStatus === null ||
     !isImportSubmissionStatusValue(rawStatus) ||
@@ -619,6 +624,7 @@ function readDemoSubmission(value: unknown): IImportSubmission | null {
     id,
     jobId,
     sourceUrl,
+    sourceText,
     status: rawStatus,
     submittedAt,
     recipeId: readString(value, 'recipeId'),
@@ -750,11 +756,13 @@ function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
     },
     getRecipe: getRemoteRecipe,
     async submitImport(request: IImportRequestWithIdempotencyKey): Promise<IImportSubmission> {
-      const sourceUrl: string = request.sourceUrl.trim();
+      const sourceUrl: string | null = request.sourceUrl?.trim() || null;
+      const sourceText: string | null = request.sourceText?.trim() || null;
       const idempotencyKey: string = request.idempotencyKey?.trim() || createImportIdempotencyKey();
       const result = await client.functions.invoke<unknown>('import-recipe-v2', {
         body: {
           source_url: sourceUrl,
+          source_text: sourceText,
           idempotency_key: idempotencyKey,
         },
       });
@@ -780,6 +788,7 @@ function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
         id: jobId,
         jobId,
         sourceUrl,
+        sourceText,
         status,
         submittedAt: new Date().toISOString(),
         recipeId: readString(result.data, 'recipe_id'),
@@ -840,10 +849,13 @@ function createDemoAdapter(): ISupabaseAdapter {
         id: submissionId,
         jobId: submissionId,
         sourceUrl: request.sourceUrl,
+        sourceText: request.sourceText ?? null,
         status: 'parsing',
         submittedAt: new Date().toISOString(),
         recipeId: null,
-        message: 'Demo mode queued the URL locally. Add Supabase keys to connect the real importer.',
+        message: request.sourceText === undefined
+          ? 'Demo mode queued the URL locally. Add Supabase keys to connect the real importer.'
+          : 'Demo mode queued the pasted recipe locally. Add Supabase keys to connect the real importer.',
         deduplicated: false,
         attemptCount: 0,
         maxAttempts: 3,

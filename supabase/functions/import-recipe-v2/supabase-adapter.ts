@@ -10,7 +10,8 @@ export interface AuthenticatedImportUser {
 
 export interface EnqueueRecipeImportInput {
   readonly user_id: string;
-  readonly source_url: string;
+  readonly source_url: string | null;
+  readonly source_text?: string | null;
   readonly idempotency_key: string;
 }
 
@@ -24,7 +25,8 @@ export interface EnqueueRecipeImportResult {
 export interface ClaimedRecipeImport {
   readonly message_id: number;
   readonly job_id: string;
-  readonly source_url: string;
+  readonly source_url: string | null;
+  readonly source_text?: string | null;
   readonly attempt_number: number;
   readonly max_attempts: number;
 }
@@ -113,10 +115,11 @@ export class SupabaseRecipeImportGateway implements RecipeImportGateway {
     input: EnqueueRecipeImportInput,
   ): Promise<EnqueueRecipeImportResult> {
     const result: SupabaseCallResult = await this.transport.rpc(
-      "enqueue_recipe_import",
+      "enqueue_recipe_import_with_text",
       {
         p_user_id: input.user_id,
         p_source_url: input.source_url,
+        p_source_text: input.source_text ?? null,
         p_idempotency_key: input.idempotency_key,
       },
     );
@@ -154,7 +157,8 @@ export class SupabaseRecipeImportGateway implements RecipeImportGateway {
     return {
       message_id: requiredInteger(first, "message_id", 0),
       job_id: requiredString(first, "job_id"),
-      source_url: requiredString(first, "source_url"),
+      source_url: nullableString(first["source_url"]),
+      source_text: nullableString(first["source_text"]),
       attempt_number: requiredInteger(first, "attempt_number", 1),
       max_attempts: requiredInteger(first, "max_attempts", 1),
     };

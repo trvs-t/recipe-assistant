@@ -415,6 +415,7 @@ Deno.test("public POST authenticates with Supabase Auth and only enqueues", asyn
   assertDeepEquals(gateway.enqueueInputs, [{
     user_id: "auth-user-id",
     source_url,
+    source_text: null,
     idempotency_key: "key-1",
   }]);
   assertDeepEquals(await response.json(), {
@@ -1212,7 +1213,7 @@ Deno.test("Supabase gateway maps Auth and all four RPC contracts", async () => {
       args: Readonly<Record<string, unknown>>,
     ): Promise<SupabaseCallResult> {
       calls.push({ name: function_name, args });
-      if (function_name === "enqueue_recipe_import") {
+      if (function_name === "enqueue_recipe_import_with_text") {
         return Promise.resolve({
           data: [{
             job_id: "job-1",
@@ -1303,7 +1304,7 @@ Deno.test("Supabase gateway maps Auth and all four RPC contracts", async () => {
     "retry_wait",
   );
   assertDeepEquals(calls.map((call): string => call.name), [
-    "enqueue_recipe_import",
+    "enqueue_recipe_import_with_text",
     "claim_recipe_import",
     "persist_recipe_import",
     "finish_recipe_import_error",

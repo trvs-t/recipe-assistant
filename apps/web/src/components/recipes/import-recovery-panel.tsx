@@ -27,14 +27,14 @@ export interface IRetryWaitRecoveryPanelProps extends IImportRecoveryPanelBasePr
 export interface INeedsInputRecoveryPanelProps extends IImportRecoveryPanelBaseProps {
   state: 'needs_input';
   errorCode: string | null;
-  onEditSource: () => void;
+  onEditSource?: () => void;
   onRetryImport: () => void;
 }
 
 export interface IFailedRecoveryPanelProps extends IImportRecoveryPanelBaseProps {
   state: 'failed';
   errorCode: string | null;
-  onEditSource: () => void;
+  onEditSource?: () => void;
   onRetryImport: () => void;
 }
 
@@ -109,10 +109,12 @@ export function ImportRecoveryPanel(props: IImportRecoveryPanelProps): ReactElem
                     <RefreshCw aria-hidden="true" className={props.isActionPending ? 'animate-spin' : undefined} size={16} />
                     {props.isActionPending ? 'Retrying…' : 'Retry import'}
                   </Button>
-                  <Button disabled={props.isActionPending} onClick={props.onEditSource} type="button" variant="outline">
-                    <Pencil aria-hidden="true" size={16} />
-                    Edit source URL
-                  </Button>
+                  {props.onEditSource !== undefined ? (
+                    <Button disabled={props.isActionPending} onClick={props.onEditSource} type="button" variant="outline">
+                      <Pencil aria-hidden="true" size={16} />
+                      Edit source URL
+                    </Button>
+                  ) : null}
                 </>
               ) : null}
               {props.state === 'query_error' ? (

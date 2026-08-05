@@ -10,7 +10,7 @@ import {
 
 export function normalizeRecipeDraft(
   draft: unknown,
-  source_url: string,
+  source_url: string | null,
 ): NormalizedRecipe {
   if (!isRecord(draft)) {
     throw invalidOutput("AI normalization returned a non-object result");

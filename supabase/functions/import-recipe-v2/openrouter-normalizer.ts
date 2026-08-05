@@ -165,8 +165,8 @@ export class OpenRouterNormalizer implements AiNormalizationAdapter {
         {
           role: "user",
           content: [
-            `Requested source URL: ${input.source_url}`,
-            `Resolved source URL: ${input.resolved_url}`,
+            `Requested source URL: ${input.source_url ?? "Pasted recipe text"}`,
+            `Resolved source URL: ${input.resolved_url ?? "Pasted recipe text"}`,
             `Normalization attempt: ${inline_attempt} of ${this.max_inline_attempts}`,
             "Recipe source content:",
             prepareRecipeSourceContent(input.content),

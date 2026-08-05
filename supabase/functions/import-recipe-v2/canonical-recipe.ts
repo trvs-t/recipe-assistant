@@ -26,7 +26,7 @@ export interface CanonicalStepPayload {
 }
 
 export interface CanonicalRecipePayload {
-  readonly sourceUrl: string;
+  readonly sourceUrl: string | null;
   readonly title: string;
   readonly description: string | null;
   readonly prepTimeMinutes: number | null;
@@ -45,7 +45,7 @@ export interface CanonicalRecipePayload {
 
 export function mapToCanonicalRecipe(
   recipe: NormalizedRecipe,
-  source_url: string,
+  source_url: string | null,
 ): CanonicalRecipePayload {
   assertSemanticallyValidRecipe(recipe);
   const ingredients: readonly CanonicalIngredientPayload[] = recipe.ingredients

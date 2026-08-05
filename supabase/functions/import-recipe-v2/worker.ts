@@ -47,10 +47,9 @@ export async function processClaimedImport(
   let stage: ImportStage = "fetch";
   try {
     await markStage(dependencies.gateway, claim, "fetch");
-    const source: SourceDocument = await dependencies.source_fetcher.fetch(
-      claim.source_url,
-      claim.attempt_number,
-    );
+    const source: SourceDocument = claim.source_text === undefined || claim.source_text === null
+      ? await fetchUrlSource(claim, dependencies.source_fetcher)
+      : createTextSource(claim);
 
     stage = "extract";
     await markStage(
@@ -59,11 +58,9 @@ export async function processClaimedImport(
       "extract",
       1 + source.redirect_count,
     );
-    const deterministicRecipe: NormalizedRecipe | null =
-      extractRecipeFromJsonLd(
-        source.body,
-        claim.source_url,
-      );
+    const deterministicRecipe: NormalizedRecipe | null = claim.source_text === undefined || claim.source_text === null
+      ? extractRecipeFromJsonLd(source.body, claim.source_url ?? source.source_url)
+      : null;
 
     stage = "normalize";
     await markStage(dependencies.gateway, claim, "normalize");
@@ -134,6 +131,29 @@ export async function processClaimedImport(
       });
     }
   }
+}
+
+async function fetchUrlSource(
+  claim: ClaimedRecipeImport,
+  source_fetcher: SourceFetcher,
+): Promise<SourceDocument> {
+  if (claim.source_url === null) {
+    throw new Error("A URL import is missing its source URL");
+  }
+
+  return source_fetcher.fetch(claim.source_url, claim.attempt_number);
+}
+
+function createTextSource(claim: ClaimedRecipeImport): SourceDocument {
+  const source_text: string = claim.source_text ?? "";
+  return {
+    source_url: "text-input",
+    final_url: "text-input",
+    status: 200,
+    content_type: "text/plain",
+    body: source_text,
+    redirect_count: 0,
+  };
 }
 
 function markStage(

@@ -14,6 +14,8 @@ import {
 } from "./types.ts";
 
 export const WORKER_ACTION: string = "worker";
+const MIN_SOURCE_TEXT_LENGTH: number = 50;
+const MAX_SOURCE_TEXT_LENGTH: number = 20_000;
 
 /**
  * Public submission: POST /functions/v1/import-recipe-v2
@@ -98,6 +100,7 @@ async function handleSubmission(
     const result = await dependencies.gateway.enqueueRecipeImport({
       user_id: user.id,
       source_url: parsed.source_url,
+      source_text: parsed.source_text,
       idempotency_key: parsed.idempotency_key,
     });
     scheduleImmediateWorker(result.job_status, dependencies);
@@ -190,7 +193,8 @@ function scheduleImmediateWorker(
 }
 
 interface ImportSubmissionInput {
-  readonly source_url: string;
+  readonly source_url: string | null;
+  readonly source_text: string | null;
   readonly idempotency_key: string;
 }
 
@@ -210,65 +214,90 @@ async function parseSubmissionRequest(
 
   const sourceValue: unknown = rawBody["sourceUrl"] ?? rawBody["source_url"] ??
     rawBody["url"];
+  const textValue: unknown = rawBody["sourceText"] ?? rawBody["source_text"] ??
+    rawBody["text"];
   const idempotencyValue: unknown = rawBody["idempotencyKey"] ??
     rawBody["idempotency_key"] ??
     request.headers.get("idempotency-key");
-  if (typeof sourceValue !== "string" || typeof idempotencyValue !== "string") {
-    throw requestError("sourceUrl and idempotencyKey are required");
+  if (typeof idempotencyValue !== "string") {
+    throw requestError("idempotencyKey is required");
   }
 
-  const source_url: string = sourceValue.trim();
+  const source_url: string | null = typeof sourceValue === "string" && sourceValue.trim().length > 0
+    ? sourceValue.trim()
+    : null;
+  const source_text: string | null = typeof textValue === "string" && textValue.trim().length > 0
+    ? textValue.trim()
+    : null;
   const idempotency_key: string = idempotencyValue.trim();
-  validateSubmissionShape(source_url, idempotency_key);
-  return { source_url, idempotency_key };
+  validateSubmissionShape(source_url, source_text, idempotency_key);
+  return { source_url, source_text, idempotency_key };
 }
 
 function validateSubmissionShape(
-  source_url: string,
+  source_url: string | null,
+  source_text: string | null,
   idempotency_key: string,
 ): void {
-  if (source_url.length === 0 || source_url.length > 2048) {
+  const has_url: boolean = source_url !== null;
+  const has_text: boolean = source_text !== null;
+  if (has_url === has_text) {
     throw new PipelineError({
-      code: "INVALID_URL",
-      message: "sourceUrl must be a non-empty URL under 2048 characters",
+      code: "INVALID_REQUEST",
+      message: "Provide exactly one of sourceUrl or sourceText",
       stage: "submit",
       retryable: false,
     });
   }
-  let parsed: URL;
-  try {
-    parsed = new URL(source_url);
-  } catch {
-    throw new PipelineError({
-      code: "INVALID_URL",
-      message: "sourceUrl must be a valid URL",
-      stage: "submit",
-      retryable: false,
-    });
+  if (source_url !== null) {
+    if (source_url.length > 2048) {
+      throw requestError("sourceUrl must be under 2048 characters");
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(source_url);
+    } catch {
+      throw new PipelineError({
+        code: "INVALID_URL",
+        message: "sourceUrl must be a valid URL",
+        stage: "submit",
+        retryable: false,
+      });
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new PipelineError({
+        code: "UNSUPPORTED_PROTOCOL",
+        message: "sourceUrl must use http or https",
+        stage: "submit",
+        retryable: false,
+      });
+    }
+    if (parsed.username.length > 0 || parsed.password.length > 0) {
+      throw new PipelineError({
+        code: "URL_CREDENTIALS_NOT_ALLOWED",
+        message: "sourceUrl must not contain embedded credentials",
+        stage: "submit",
+        retryable: false,
+      });
+    }
+    if (parsed.port.length > 0 && parsed.port !== "80" && parsed.port !== "443") {
+      throw new PipelineError({
+        code: "URL_PORT_NOT_ALLOWED",
+        message: "sourceUrl uses a port that is not allowed",
+        stage: "submit",
+        retryable: false,
+      });
+    }
   }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new PipelineError({
-      code: "UNSUPPORTED_PROTOCOL",
-      message: "sourceUrl must use http or https",
-      stage: "submit",
-      retryable: false,
-    });
+  if (source_text !== null && source_text.length < MIN_SOURCE_TEXT_LENGTH) {
+    throw requestError(
+      `sourceText must contain at least ${MIN_SOURCE_TEXT_LENGTH} characters`,
+    );
   }
-  if (parsed.username.length > 0 || parsed.password.length > 0) {
-    throw new PipelineError({
-      code: "URL_CREDENTIALS_NOT_ALLOWED",
-      message: "sourceUrl must not contain embedded credentials",
-      stage: "submit",
-      retryable: false,
-    });
-  }
-  if (parsed.port.length > 0 && parsed.port !== "80" && parsed.port !== "443") {
-    throw new PipelineError({
-      code: "URL_PORT_NOT_ALLOWED",
-      message: "sourceUrl uses a port that is not allowed",
-      stage: "submit",
-      retryable: false,
-    });
+  if (source_text !== null && source_text.length > MAX_SOURCE_TEXT_LENGTH) {
+    throw requestError(
+      `sourceText must be ${MAX_SOURCE_TEXT_LENGTH} characters or fewer`,
+    );
   }
   if (idempotency_key.length === 0 || idempotency_key.length > 200) {
     throw requestError("idempotencyKey must contain 1-200 characters");

@@ -4,7 +4,7 @@ This function has two explicit POST actions:
 
 - `POST /functions/v1/import-recipe-v2` accepts a Supabase Auth bearer token and
   `{ "sourceUrl": "https://...", "idempotencyKey": "..." }`. It validates the
-  request, calls `enqueue_recipe_import`, and returns `202`; it never fetches or
+  request, calls the URL-or-text enqueue RPC, and returns `202`; it never fetches or
   parses the source inline.
 - `POST /functions/v1/import-recipe-v2?action=worker` is for the durable worker.
   It requires `x-import-worker-secret: $IMPORT_WORKER_SECRET`, claims at most

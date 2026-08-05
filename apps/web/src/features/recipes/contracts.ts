@@ -61,6 +61,7 @@ export interface IRecipeSummary {
 export interface IRecipe extends IRecipeSummary {
   ingredients: IRecipeIngredient[];
   steps: IRecipeStep[];
+  sourceText?: string | null;
   /**
    * Older adapters may omit enrichment. The detail view derives a canonical
    * linear flow when this value is absent or invalid.
@@ -69,12 +70,14 @@ export interface IRecipe extends IRecipeSummary {
 }
 
 export interface IImportRequest {
-  sourceUrl: string;
+  sourceUrl: string | null;
+  sourceText?: string;
 }
 
 export interface IImportSubmission {
   id: string;
-  sourceUrl: string;
+  sourceUrl: string | null;
+  sourceText: string | null;
   status: ImportSubmissionStatus;
   submittedAt: string;
   recipeId: string | null;

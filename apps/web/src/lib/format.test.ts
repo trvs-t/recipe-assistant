@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { MAX_BULK_IMPORT_URLS, parseSourceUrls, type IParsedSourceUrls } from './format';
+import {
+  MAX_BULK_IMPORT_URLS,
+  MIN_PLAIN_RECIPE_TEXT_LENGTH,
+  parseSourceUrls,
+  validatePlainRecipeText,
+  type IParsedSourceUrls,
+} from './format';
 
 describe('parseSourceUrls', (): void => {
   it('parses newline and whitespace separated URLs', (): void => {
@@ -78,5 +84,18 @@ describe('parseSourceUrls', (): void => {
     expect(parseSourceUrls(urls.join('\n')).errorMessage).toBe(
       `Import up to ${MAX_BULK_IMPORT_URLS} recipe URLs at a time.`,
     );
+  });
+
+  it('accepts recipe text within the supported bounds', (): void => {
+    const text: string = 'A recipe title\n\nIngredients\n2 cups rice\n\nInstructions\nCook the rice until tender.';
+
+    expect(validatePlainRecipeText(text)).toBeNull();
+  });
+
+  it('rejects empty or oversized recipe text', (): void => {
+    expect(validatePlainRecipeText('too short')).toBe(
+      `Paste at least ${MIN_PLAIN_RECIPE_TEXT_LENGTH} characters of recipe text.`,
+    );
+    expect(validatePlainRecipeText('x'.repeat(20_001))).toContain('20,000');
   });
 });

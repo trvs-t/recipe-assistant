@@ -29,7 +29,7 @@ export function formatDate(dateString: string): string {
 
 export function getSourceLabel(sourceUrl: string | null): string {
   if (sourceUrl === null) {
-    return 'Saved recipe';
+    return 'Pasted recipe';
   }
 
   try {
@@ -37,6 +37,21 @@ export function getSourceLabel(sourceUrl: string | null): string {
   } catch {
     return 'External source';
   }
+}
+
+export const MIN_PLAIN_RECIPE_TEXT_LENGTH: number = 50;
+export const MAX_PLAIN_RECIPE_TEXT_LENGTH: number = 20_000;
+
+export function validatePlainRecipeText(value: string): string | null {
+  const trimmedValue: string = value.trim();
+  if (trimmedValue.length < MIN_PLAIN_RECIPE_TEXT_LENGTH) {
+    return `Paste at least ${MIN_PLAIN_RECIPE_TEXT_LENGTH} characters of recipe text.`;
+  }
+  if (trimmedValue.length > MAX_PLAIN_RECIPE_TEXT_LENGTH) {
+    return `Keep pasted recipe text under ${MAX_PLAIN_RECIPE_TEXT_LENGTH.toLocaleString()} characters.`;
+  }
+
+  return null;
 }
 
 export function validateSourceUrl(value: string): string | null {

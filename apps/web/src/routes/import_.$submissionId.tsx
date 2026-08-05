@@ -29,6 +29,11 @@ interface IStatusStep {
   description: string;
 }
 
+interface IImportRetryInput {
+  sourceUrl: string | null;
+  sourceText: string | null;
+}
+
 const statusSteps: readonly IStatusStep[] = [
   { status: 'queued', label: 'Queued', description: 'The source is waiting to be processed.' },
   { status: 'fetching', label: 'Fetching source', description: 'The importer is checking the source page.' },
@@ -44,10 +49,11 @@ function ImportStatusPage(): ReactElement {
   const navigate = useNavigate();
   const queryClient: QueryClient = useQueryClient();
   const submissionQuery = useImportSubmissionQuery(submissionId);
-  const retryImportMutation = useMutation<IImportSubmission, Error, string>({
-    mutationFn: (sourceUrl: string): Promise<IImportSubmission> => {
+  const retryImportMutation = useMutation<IImportSubmission, Error, IImportRetryInput>({
+    mutationFn: (input: IImportRetryInput): Promise<IImportSubmission> => {
       const request: IImportRequestWithIdempotencyKey = {
-        sourceUrl,
+        sourceUrl: input.sourceUrl,
+        sourceText: input.sourceText ?? undefined,
         idempotencyKey: createImportIdempotencyKey(),
       };
       return supabaseAdapter.submitImport(request);
@@ -138,7 +144,7 @@ function ImportStatusPage(): ReactElement {
   };
 
   const handleRetryImport: () => void = (): void => {
-    retryImportMutation.mutate(submission.sourceUrl, {
+    retryImportMutation.mutate({ sourceUrl: submission.sourceUrl, sourceText: submission.sourceText }, {
       onSuccess: (newSubmission: IImportSubmission): void => {
         void navigate({
           to: '/import/$submissionId',
@@ -149,6 +155,10 @@ function ImportStatusPage(): ReactElement {
   };
 
   const handleEditSource: () => void = (): void => {
+    if (submission.sourceUrl === null) {
+      return;
+    }
+
     void navigate({
       to: '/',
       search: { sourceUrl: submission.sourceUrl },
@@ -175,7 +185,7 @@ function ImportStatusPage(): ReactElement {
             <span className="truncate">{getSourceLabel(submission.sourceUrl)}</span>
             <span className="text-xs font-normal text-[var(--muted-foreground)]">Submitted {formatDate(submission.submittedAt)}</span>
           </CardTitle>
-          {submission.sourceUrl.length > 0 ? (
+          {submission.sourceUrl !== null ? (
             <a
               className="inline-flex items-center gap-1.5 truncate text-sm text-[var(--primary)] hover:underline"
               href={submission.sourceUrl}
@@ -229,7 +239,7 @@ function ImportStatusPage(): ReactElement {
           errorCode={submission.errorCode}
           isActionPending={retryImportMutation.isPending}
           message={submission.message}
-          onEditSource={handleEditSource}
+          onEditSource={submission.sourceUrl === null ? undefined : handleEditSource}
           onRetryImport={handleRetryImport}
           state="needs_input"
         />
@@ -241,7 +251,7 @@ function ImportStatusPage(): ReactElement {
           errorCode={submission.errorCode}
           isActionPending={retryImportMutation.isPending}
           message={submission.message}
-          onEditSource={handleEditSource}
+          onEditSource={submission.sourceUrl === null ? undefined : handleEditSource}
           onRetryImport={handleRetryImport}
           state="failed"
         />
