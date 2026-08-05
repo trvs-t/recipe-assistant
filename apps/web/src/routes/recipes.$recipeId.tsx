@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 
-import { ArrowLeft, Clock3, ExternalLink, UsersRound } from 'lucide-react';
+import { ArrowLeft, ChefHat, Clock3, ExternalLink, UsersRound } from 'lucide-react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 
 import { PortionScaler } from '@/components/recipes/portion-scaler';
@@ -92,6 +92,12 @@ function RecipeDetailPage(): ReactElement {
               </a>
             ) : null}
           </div>
+          <Link className="mt-7 inline-block" params={{ recipeId: recipe.id }} to="/recipes/$recipeId/cook">
+            <Button size="lg">
+              <ChefHat size={18} />
+              Start cooking
+            </Button>
+          </Link>
         </div>
       </section>
 

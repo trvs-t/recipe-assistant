@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ImportRouteImport } from './routes/import'
 import { Route as ImportSubmissionIdRouteImport } from './routes/import_.$submissionId'
 import { Route as RecipesRecipeIdRouteImport } from './routes/recipes.$recipeId'
+import { Route as RecipesRecipeIdCookRouteImport } from './routes/recipes.$recipeId.cook'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,44 +35,63 @@ const RecipesRecipeIdRoute = RecipesRecipeIdRouteImport.update({
   path: '/recipes/$recipeId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RecipesRecipeIdCookRoute = RecipesRecipeIdCookRouteImport.update({
+  id: '/cook',
+  path: '/cook',
+  getParentRoute: () => RecipesRecipeIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/import': typeof ImportRoute
   '/import/$submissionId': typeof ImportSubmissionIdRoute
-  '/recipes/$recipeId': typeof RecipesRecipeIdRoute
+  '/recipes/$recipeId': typeof RecipesRecipeIdRouteWithChildren
+  '/recipes/$recipeId/cook': typeof RecipesRecipeIdCookRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/import': typeof ImportRoute
   '/import/$submissionId': typeof ImportSubmissionIdRoute
-  '/recipes/$recipeId': typeof RecipesRecipeIdRoute
+  '/recipes/$recipeId': typeof RecipesRecipeIdRouteWithChildren
+  '/recipes/$recipeId/cook': typeof RecipesRecipeIdCookRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/import': typeof ImportRoute
   '/import_/$submissionId': typeof ImportSubmissionIdRoute
-  '/recipes/$recipeId': typeof RecipesRecipeIdRoute
+  '/recipes/$recipeId': typeof RecipesRecipeIdRouteWithChildren
+  '/recipes/$recipeId/cook': typeof RecipesRecipeIdCookRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/import' | '/import/$submissionId' | '/recipes/$recipeId'
+  fullPaths:
+    | '/'
+    | '/import'
+    | '/import/$submissionId'
+    | '/recipes/$recipeId'
+    | '/recipes/$recipeId/cook'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/import' | '/import/$submissionId' | '/recipes/$recipeId'
+  to:
+    | '/'
+    | '/import'
+    | '/import/$submissionId'
+    | '/recipes/$recipeId'
+    | '/recipes/$recipeId/cook'
   id:
     | '__root__'
     | '/'
     | '/import'
     | '/import_/$submissionId'
     | '/recipes/$recipeId'
+    | '/recipes/$recipeId/cook'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ImportRoute: typeof ImportRoute
   ImportSubmissionIdRoute: typeof ImportSubmissionIdRoute
-  RecipesRecipeIdRoute: typeof RecipesRecipeIdRoute
+  RecipesRecipeIdRoute: typeof RecipesRecipeIdRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -104,14 +124,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RecipesRecipeIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/recipes/$recipeId/cook': {
+      id: '/recipes/$recipeId/cook'
+      path: '/cook'
+      fullPath: '/recipes/$recipeId/cook'
+      preLoaderRoute: typeof RecipesRecipeIdCookRouteImport
+      parentRoute: typeof RecipesRecipeIdRoute
+    }
   }
 }
+
+interface RecipesRecipeIdRouteChildren {
+  RecipesRecipeIdCookRoute: typeof RecipesRecipeIdCookRoute
+}
+
+const RecipesRecipeIdRouteChildren: RecipesRecipeIdRouteChildren = {
+  RecipesRecipeIdCookRoute: RecipesRecipeIdCookRoute,
+}
+
+const RecipesRecipeIdRouteWithChildren = RecipesRecipeIdRoute._addFileChildren(
+  RecipesRecipeIdRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ImportRoute: ImportRoute,
   ImportSubmissionIdRoute: ImportSubmissionIdRoute,
-  RecipesRecipeIdRoute: RecipesRecipeIdRoute,
+  RecipesRecipeIdRoute: RecipesRecipeIdRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
