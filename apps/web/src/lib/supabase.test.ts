@@ -73,6 +73,23 @@ describe('Supabase adapter', (): void => {
     expect(recipe?.flow?.nodes.some((node) => node.ingredientIds.length > 0)).toBe(true);
   });
 
+  it('creates, assigns, renames, and deletes folders in demo mode without deleting recipes', async (): Promise<void> => {
+    const adapter = createSupabaseAdapter({ VITE_SUPABASE_URL: 'not-a-url' });
+    const folder = await adapter.createFolder('  Test dinners  ');
+    await adapter.setRecipeFolders('demo-tomato-toast', [folder.id]);
+
+    const assignedRecipe = await adapter.getRecipe('demo-tomato-toast');
+    expect(assignedRecipe?.folderIds).toEqual([folder.id]);
+
+    await adapter.renameFolder(folder.id, 'Test favorites');
+    expect((await adapter.listFolders()).find((item) => item.id === folder.id)?.name).toBe('Test favorites');
+
+    await adapter.deleteFolder(folder.id);
+    expect((await adapter.listFolders()).some((item) => item.id === folder.id)).toBe(false);
+    expect(await adapter.getRecipe('demo-tomato-toast')).not.toBeNull();
+    expect((await adapter.getRecipe('demo-tomato-toast'))?.folderIds).toEqual([]);
+  });
+
   it('recognizes every durable import status and only terminal statuses stop polling', (): void => {
     const statuses: string[] = [
       'queued',

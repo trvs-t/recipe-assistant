@@ -6,6 +6,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { PortionScaler } from '@/components/recipes/portion-scaler';
 import { IngredientEditor } from '@/components/recipes/ingredient-editor';
 import { IngredientLinkRepair } from '@/components/recipes/ingredient-link-repair';
+import { RecipeFolderPicker } from '@/components/recipes/recipe-folder-picker';
 import { RecipeFlowDiagram } from '@/components/recipes/recipe-flow-diagram';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -104,6 +105,10 @@ function RecipeDetailPage(): ReactElement {
 
       <section className="max-w-2xl">
         <PortionScaler recipe={recipe} />
+      </section>
+
+      <section className="max-w-2xl">
+        <RecipeFolderPicker recipe={recipe} />
       </section>
 
       <section className="max-w-4xl">

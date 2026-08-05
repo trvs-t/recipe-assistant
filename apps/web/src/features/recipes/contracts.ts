@@ -25,6 +25,13 @@ export interface IRecipeFlow {
   edges: IRecipeFlowEdge[];
 }
 
+export interface IFolder {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type RecipeFlow = IRecipeFlow;
 export type RecipeFlowNode = IRecipeFlowNode;
 export type RecipeFlowEdge = IRecipeFlowEdge;
@@ -57,6 +64,7 @@ export interface IRecipeSummary {
   title: string;
   description: string;
   collection: string;
+  folderIds?: string[];
   tags: string[];
   sourceUrl: string | null;
   servings: number;

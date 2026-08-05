@@ -7,6 +7,7 @@ import {
 } from '@/lib/supabase';
 
 import type {
+  IFolder,
   IRecipe,
   IRecipeSummary,
 } from './contracts';
@@ -19,6 +20,18 @@ export const recipeQueryKeys = {
   importList: () => [...recipeQueryKeys.imports, 'list'] as const,
   submission: (submissionId: string) => [...recipeQueryKeys.imports, 'submission', submissionId] as const,
 };
+
+export const folderQueryKeys = {
+  all: ['folders'] as const,
+  list: () => [...folderQueryKeys.all, 'list'] as const,
+};
+
+export function useFolderListQuery(): UseQueryResult<IFolder[], Error> {
+  return useQuery<IFolder[], Error>({
+    queryKey: folderQueryKeys.list(),
+    queryFn: (): Promise<IFolder[]> => supabaseAdapter.listFolders(),
+  });
+}
 
 export function useRecipeListQuery(): UseQueryResult<IRecipeSummary[], Error> {
   return useQuery<IRecipeSummary[], Error>({

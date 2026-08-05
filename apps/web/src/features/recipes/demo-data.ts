@@ -1,4 +1,5 @@
 import type {
+  IFolder,
   IRecipe,
   IRecipeFlow,
   IRecipeFlowEdge,
@@ -12,6 +13,7 @@ const demoRecipes: IRecipe[] = [
     title: 'Miso butter salmon',
     description: 'A glossy, savory weeknight salmon with citrus and sesame.',
     collection: 'Weeknight wins',
+    folderIds: ['demo-folder-weeknight'],
     tags: ['30 minutes', 'high protein', 'one pan'],
     sourceUrl: 'https://www.justonecookbook.com/miso-salmon/',
     servings: 2,
@@ -133,6 +135,7 @@ const demoRecipes: IRecipe[] = [
     title: 'Citrus soba salad',
     description: 'Cold buckwheat noodles tossed with crunchy vegetables and sesame dressing.',
     collection: 'Fresh starts',
+    folderIds: ['demo-folder-lunch'],
     tags: ['vegetarian', 'make ahead', 'lunch'],
     sourceUrl: 'https://www.bonappetit.com/recipe/soba-noodle-salad',
     servings: 4,
@@ -237,10 +240,26 @@ const demoRecipes: IRecipe[] = [
   },
 ];
 
+const demoFolders: IFolder[] = [
+  {
+    id: 'demo-folder-weeknight',
+    name: 'Weeknight meals',
+    createdAt: '2026-07-01T08:00:00.000Z',
+    updatedAt: '2026-07-01T08:00:00.000Z',
+  },
+  {
+    id: 'demo-folder-lunch',
+    name: 'Lunch ideas',
+    createdAt: '2026-07-02T08:00:00.000Z',
+    updatedAt: '2026-07-02T08:00:00.000Z',
+  },
+];
+
 function copyRecipe(recipe: IRecipe): IRecipe {
   return {
     ...recipe,
     tags: [...recipe.tags],
+    folderIds: recipe.folderIds === undefined ? undefined : [...recipe.folderIds],
     ingredients: recipe.ingredients.map((ingredient) => ({ ...ingredient })),
     steps: recipe.steps.map((step) => ({ ...step })),
     flow:
@@ -263,6 +282,10 @@ function copyFlow(flow: IRecipeFlow): IRecipeFlow {
 
 export function getDemoRecipes(): IRecipe[] {
   return demoRecipes.map(copyRecipe);
+}
+
+export function getDemoFolders(): IFolder[] {
+  return demoFolders.map((folder: IFolder): IFolder => ({ ...folder }));
 }
 
 export function getDemoRecipeSummaries(): IRecipeSummary[] {

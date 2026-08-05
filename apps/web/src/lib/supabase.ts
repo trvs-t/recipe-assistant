@@ -2,12 +2,14 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 import {
   getDemoRecipe,
+  getDemoFolders,
   getDemoRecipes,
-  getDemoRecipeSummaries,
 } from '@/features/recipes/demo-data';
 import { buildDeterministicIngredientFlow } from '@/features/recipes/ingredient-linking';
+import { normalizeFolderName, validateFolderName } from '@/features/recipes/folders';
 import {
   isRecipeStatus,
+  type IFolder,
   type IImportRequest,
   type IImportSubmission as IContractImportSubmission,
   type IIngredientEditInput,
@@ -78,6 +80,20 @@ interface IRecipeImportJobRow extends Record<string, unknown> {
   error_retryable: boolean | null;
   created_at: string;
   updated_at: string;
+}
+
+interface IFolderRow extends Record<string, unknown> {
+  id: string;
+  user_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface IRecipeFolderRow extends Record<string, unknown> {
+  recipe_id: string;
+  folder_id: string;
+  created_at: string;
 }
 
 export interface IRecipeFlowNode {
@@ -180,9 +196,29 @@ export interface ILocalDatabase {
         Update: Partial<IStepRow>;
         Relationships: [];
       };
+      folders: {
+        Row: IFolderRow;
+        Insert: Partial<IFolderRow>;
+        Update: Partial<IFolderRow>;
+        Relationships: [];
+      };
+      recipe_folders: {
+        Row: IRecipeFolderRow;
+        Insert: Partial<IRecipeFolderRow>;
+        Update: Partial<IRecipeFolderRow>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      set_recipe_folders: {
+        Args: {
+          p_recipe_id: string;
+          p_folder_ids: string[];
+        };
+        Returns: null;
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };
@@ -196,6 +232,11 @@ export interface ISupabaseAdapter {
   readonly mode: SupabaseMode;
   readonly client: TypedSupabaseClient | null;
   listRecipes(): Promise<IRecipeSummary[]>;
+  listFolders(): Promise<IFolder[]>;
+  createFolder(name: string): Promise<IFolder>;
+  renameFolder(folderId: string, name: string): Promise<void>;
+  deleteFolder(folderId: string): Promise<void>;
+  setRecipeFolders(recipeId: string, folderIds: string[]): Promise<void>;
   listImportSubmissions(): Promise<IImportSubmission[]>;
   getRecipe(recipeId: string): Promise<IRecipe | null>;
   updateIngredient(recipeId: string, ingredientId: string, input: IIngredientEditInput): Promise<void>;
@@ -453,7 +494,12 @@ function mapRecipeStatus(value: string | null): RecipeStatus {
   return value !== null && isRecipeStatus(value) ? value : 'pending';
 }
 
-function mapRecipeRow(row: IRecipeRow, ingredients: IIngredientRow[], steps: IStepRow[]): IRecipeWithFlow {
+function mapRecipeRow(
+  row: IRecipeRow,
+  ingredients: IIngredientRow[],
+  steps: IStepRow[],
+  folderIds: string[] = [],
+): IRecipeWithFlow {
   const sortedIngredients: IIngredientRow[] = [...ingredients].sort(
     (first: IIngredientRow, second: IIngredientRow): number => first.sort_order - second.sort_order,
   );
@@ -465,6 +511,7 @@ function mapRecipeRow(row: IRecipeRow, ingredients: IIngredientRow[], steps: ISt
     title: row.title?.trim() || 'Untitled recipe',
     description: row.description?.trim() || 'A recipe waiting for its story to be filled in.',
     collection: row.cuisine_type?.trim() || 'My recipes',
+    folderIds: [...folderIds],
     tags: row.dietary_tags ?? [],
     sourceUrl: row.source_url,
     sourceText: row.source_text,
@@ -495,12 +542,13 @@ function mapRecipeRow(row: IRecipeRow, ingredients: IIngredientRow[], steps: ISt
   };
 }
 
-function mapRecipeSummary(row: IRecipeRow): IRecipeSummary {
+function mapRecipeSummary(row: IRecipeRow, folderIds: string[] = []): IRecipeSummary {
   return {
     id: row.id,
     title: row.title?.trim() || 'Untitled recipe',
     description: row.description?.trim() || 'A recipe waiting for its story to be filled in.',
     collection: row.cuisine_type?.trim() || 'My recipes',
+    folderIds: [...folderIds],
     tags: row.dietary_tags ?? [],
     sourceUrl: row.source_url,
     servings: row.servings && row.servings > 0 ? row.servings : 2,
@@ -509,6 +557,25 @@ function mapRecipeSummary(row: IRecipeRow): IRecipeSummary {
     updatedAt: row.updated_at,
     status: mapRecipeStatus(row.status),
   };
+}
+
+function mapFolderRow(row: IFolderRow): IFolder {
+  return {
+    id: row.id,
+    name: row.name,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapFolderLinks(rows: readonly IRecipeFolderRow[]): Map<string, string[]> {
+  const folderIdsByRecipeId: Map<string, string[]> = new Map<string, string[]>();
+  for (const row of rows) {
+    const folderIds: string[] = folderIdsByRecipeId.get(row.recipe_id) ?? [];
+    folderIds.push(row.folder_id);
+    folderIdsByRecipeId.set(row.recipe_id, folderIds);
+  }
+  return folderIdsByRecipeId;
 }
 
 export function isImportJobStatus(value: string | null): value is ImportJobStatus {
@@ -710,6 +777,14 @@ export function createImportIdempotencyKey(): string {
   return `recipe-import-${Date.now()}-${fallbackIdempotencyKeyCounter}`;
 }
 
+function requireFolderName(value: string): string {
+  const errorMessage: string | null = validateFolderName(value);
+  if (errorMessage !== null) {
+    throw new SupabaseAdapterError(errorMessage);
+  }
+  return normalizeFolderName(value);
+}
+
 function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
   async function getRemoteRecipe(recipeId: string): Promise<IRecipe | null> {
     const recipeResult = await client
@@ -726,9 +801,10 @@ function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
       return null;
     }
 
-    const [ingredientsResult, stepsResult] = await Promise.all([
+    const [ingredientsResult, stepsResult, folderLinksResult] = await Promise.all([
       client.from('ingredients').select('*').eq('recipe_id', recipeId),
       client.from('steps').select('*').eq('recipe_id', recipeId),
+      client.from('recipe_folders').select('*').eq('recipe_id', recipeId),
     ]);
 
     if (ingredientsResult.error) {
@@ -738,8 +814,77 @@ function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
     if (stepsResult.error) {
       throw new SupabaseAdapterError('Unable to load this recipe\'s steps.', stepsResult.error);
     }
+    if (folderLinksResult.error) {
+      throw new SupabaseAdapterError('Unable to load this recipe\'s folders.', folderLinksResult.error);
+    }
 
-    return mapRecipeRow(recipeResult.data, ingredientsResult.data, stepsResult.data);
+    const folderIds: string[] = folderLinksResult.data.map(
+      (row: IRecipeFolderRow): string => row.folder_id,
+    );
+    return mapRecipeRow(recipeResult.data, ingredientsResult.data, stepsResult.data, folderIds);
+  }
+
+  async function listFolders(): Promise<IFolder[]> {
+    const result = await client.from('folders').select('*').order('name', { ascending: true });
+    if (result.error) {
+      throw new SupabaseAdapterError('Unable to load your folders.', result.error);
+    }
+    return result.data.map(mapFolderRow);
+  }
+
+  async function createFolder(name: string): Promise<IFolder> {
+    const normalizedName: string = requireFolderName(name);
+    const result = await client
+      .from('folders')
+      .insert({ name: normalizedName })
+      .select('*')
+      .single();
+    if (result.error) {
+      throw new SupabaseAdapterError('Unable to create that folder. Folder names must be unique.', result.error);
+    }
+    return mapFolderRow(result.data);
+  }
+
+  async function renameFolder(folderId: string, name: string): Promise<void> {
+    const normalizedName: string = requireFolderName(name);
+    const result = await client
+      .from('folders')
+      .update({ name: normalizedName })
+      .eq('id', folderId)
+      .select('id')
+      .maybeSingle();
+    if (result.error) {
+      throw new SupabaseAdapterError('Unable to rename that folder. Folder names must be unique.', result.error);
+    }
+    if (result.data === null) {
+      throw new SupabaseAdapterError('That folder is no longer available.');
+    }
+  }
+
+  async function deleteFolder(folderId: string): Promise<void> {
+    const result = await client
+      .from('folders')
+      .delete()
+      .eq('id', folderId)
+      .select('id')
+      .maybeSingle();
+    if (result.error) {
+      throw new SupabaseAdapterError('Unable to delete that folder.', result.error);
+    }
+    if (result.data === null) {
+      throw new SupabaseAdapterError('That folder is no longer available.');
+    }
+  }
+
+  async function setRecipeFolders(recipeId: string, folderIds: string[]): Promise<void> {
+    const uniqueFolderIds: string[] = [...new Set(folderIds)];
+    const result = await client.rpc('set_recipe_folders', {
+      p_recipe_id: recipeId,
+      p_folder_ids: uniqueFolderIds,
+    });
+    if (result.error) {
+      throw new SupabaseAdapterError('Unable to update this recipe\'s folders.', result.error);
+    }
   }
 
   async function updateIngredient(
@@ -823,8 +968,19 @@ function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
         throw new SupabaseAdapterError('Unable to load your recipe library.', result.error);
       }
 
-      return result.data.map(mapRecipeSummary);
+      const folderLinksResult = await client.from('recipe_folders').select('*');
+      if (folderLinksResult.error) {
+        throw new SupabaseAdapterError('Unable to load recipe folders.', folderLinksResult.error);
+      }
+      const folderIdsByRecipeId: Map<string, string[]> = mapFolderLinks(folderLinksResult.data);
+      return result.data.map((row: IRecipeRow): IRecipeSummary =>
+        mapRecipeSummary(row, folderIdsByRecipeId.get(row.id) ?? []));
     },
+    listFolders,
+    createFolder,
+    renameFolder,
+    deleteFolder,
+    setRecipeFolders,
     async listImportSubmissions(): Promise<IImportSubmission[]> {
       const result = await client
         .from('recipe_import_jobs')
@@ -913,7 +1069,11 @@ function createDemoAdapter(): ISupabaseAdapter {
   const recipes: Map<string, IRecipe> = new Map<string, IRecipe>(
     getDemoRecipes().map((recipe: IRecipe): [string, IRecipe] => [recipe.id, recipe]),
   );
+  const folders: Map<string, IFolder> = new Map<string, IFolder>(
+    getDemoFolders().map((folder: IFolder): [string, IFolder] => [folder.id, folder]),
+  );
   let variationCounter: number = 0;
+  let folderCounter: number = 0;
   const submissions: Map<string, IImportSubmission> = new Map<string, IImportSubmission>(
     readDemoSubmissions().map((submission: IImportSubmission): [string, IImportSubmission] => [submission.id, submission]),
   );
@@ -922,7 +1082,54 @@ function createDemoAdapter(): ISupabaseAdapter {
     mode: 'demo',
     client: null,
     async listRecipes(): Promise<IRecipeSummary[]> {
-      return getDemoRecipeSummaries();
+      return [...recipes.values()]
+        .map(toRecipeSummary)
+        .sort((first: IRecipeSummary, second: IRecipeSummary): number =>
+          second.updatedAt.localeCompare(first.updatedAt));
+    },
+    async listFolders(): Promise<IFolder[]> {
+      return [...folders.values()]
+        .map((folder: IFolder): IFolder => ({ ...folder }))
+        .sort((first: IFolder, second: IFolder): number => first.name.localeCompare(second.name));
+    },
+    async createFolder(name: string): Promise<IFolder> {
+      const normalizedName: string = requireFolderName(name);
+      ensureDemoFolderNameAvailable(folders, normalizedName);
+      folderCounter += 1;
+      const now: string = new Date().toISOString();
+      const folder: IFolder = {
+        id: `demo-folder-${Date.now()}-${folderCounter}`,
+        name: normalizedName,
+        createdAt: now,
+        updatedAt: now,
+      };
+      folders.set(folder.id, folder);
+      return { ...folder };
+    },
+    async renameFolder(folderId: string, name: string): Promise<void> {
+      const folder: IFolder = getDemoFolderForMutation(folders, folderId);
+      const normalizedName: string = requireFolderName(name);
+      ensureDemoFolderNameAvailable(folders, normalizedName, folderId);
+      folder.name = normalizedName;
+      folder.updatedAt = new Date().toISOString();
+    },
+    async deleteFolder(folderId: string): Promise<void> {
+      getDemoFolderForMutation(folders, folderId);
+      folders.delete(folderId);
+      for (const recipe of recipes.values()) {
+        recipe.folderIds = (recipe.folderIds ?? []).filter(
+          (currentFolderId: string): boolean => currentFolderId !== folderId,
+        );
+      }
+    },
+    async setRecipeFolders(recipeId: string, folderIds: string[]): Promise<void> {
+      const recipe: IRecipe = getDemoRecipeForMutation(recipes, recipeId);
+      const uniqueFolderIds: string[] = [...new Set(folderIds)];
+      if (uniqueFolderIds.some((folderId: string): boolean => !folders.has(folderId))) {
+        throw new SupabaseAdapterError('One of those folders is no longer available.');
+      }
+      recipe.folderIds = uniqueFolderIds;
+      recipe.updatedAt = new Date().toISOString();
     },
     async listImportSubmissions(): Promise<IImportSubmission[]> {
       return [...submissions.values()].sort(
@@ -1023,10 +1230,51 @@ function getDemoRecipeForMutation(recipes: Map<string, IRecipe>, recipeId: strin
   return recipe;
 }
 
+function getDemoFolderForMutation(folders: Map<string, IFolder>, folderId: string): IFolder {
+  const folder: IFolder | undefined = folders.get(folderId);
+  if (folder === undefined) {
+    throw new SupabaseAdapterError('That folder is no longer available.');
+  }
+  return folder;
+}
+
+function ensureDemoFolderNameAvailable(
+  folders: Map<string, IFolder>,
+  name: string,
+  ignoredFolderId: string | null = null,
+): void {
+  const normalizedName: string = name.toLocaleLowerCase();
+  const duplicate: IFolder | undefined = [...folders.values()].find(
+    (folder: IFolder): boolean =>
+      folder.id !== ignoredFolderId && folder.name.toLocaleLowerCase() === normalizedName,
+  );
+  if (duplicate !== undefined) {
+    throw new SupabaseAdapterError('A folder with that name already exists.');
+  }
+}
+
+function toRecipeSummary(recipe: IRecipe): IRecipeSummary {
+  return {
+    id: recipe.id,
+    title: recipe.title,
+    description: recipe.description,
+    collection: recipe.collection,
+    folderIds: recipe.folderIds === undefined ? [] : [...recipe.folderIds],
+    tags: [...recipe.tags],
+    sourceUrl: recipe.sourceUrl,
+    servings: recipe.servings,
+    prepMinutes: recipe.prepMinutes,
+    cookMinutes: recipe.cookMinutes,
+    updatedAt: recipe.updatedAt,
+    status: recipe.status,
+  };
+}
+
 function copyDemoRecipe(recipe: IRecipe): IRecipe {
   return {
     ...recipe,
     tags: [...recipe.tags],
+    folderIds: recipe.folderIds === undefined ? undefined : [...recipe.folderIds],
     ingredients: recipe.ingredients.map((ingredient: IRecipeIngredient): IRecipeIngredient => ({ ...ingredient })),
     steps: recipe.steps.map((step) => ({ ...step })),
     flow: recipe.flow === undefined || recipe.flow === null

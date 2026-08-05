@@ -5,13 +5,20 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 
 import { RecipeCard } from '@/components/recipes/recipe-card';
+import { FolderSidebar } from '@/components/recipes/folder-sidebar';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { recipeQueryKeys, useImportSubmissionListQuery, useRecipeListQuery } from '@/features/recipes/queries';
+import {
+  recipeQueryKeys,
+  useFolderListQuery,
+  useImportSubmissionListQuery,
+  useRecipeListQuery,
+} from '@/features/recipes/queries';
+import { filterRecipesByFolder, type FolderFilter } from '@/features/recipes/folders';
 import {
   getSourceLabel,
   MAX_BULK_IMPORT_URLS,
@@ -60,6 +67,7 @@ function LibraryPage(): ReactElement {
   const { sourceUrl: sourceUrlFromSearch } = Route.useSearch();
   const [importMode, setImportMode] = useState<'url' | 'text'>('url');
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [selectedFolderFilter, setSelectedFolderFilter] = useState<FolderFilter>('all');
   const [sourceUrls, setSourceUrls] = useState<string>(sourceUrlFromSearch ?? '');
   const [sourceText, setSourceText] = useState<string>('');
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
@@ -67,8 +75,10 @@ function LibraryPage(): ReactElement {
   const [libraryImports, setLibraryImports] = useState<ILibraryImport[]>([]);
   const queryClient: QueryClient = useQueryClient();
   const recipesQuery = useRecipeListQuery();
+  const foldersQuery = useFolderListQuery();
   const importSubmissionsQuery = useImportSubmissionListQuery();
   const recipes: IRecipeSummary[] = recipesQuery.data ?? [];
+  const folders = foldersQuery.data ?? [];
   const importSubmissions: IImportSubmission[] = importSubmissionsQuery.data ?? [];
   const activeImportSubmissions: IImportSubmission[] = useMemo(
     (): IImportSubmission[] => importSubmissions.filter(
@@ -99,7 +109,7 @@ function LibraryPage(): ReactElement {
   const normalizedSearchTerm: string = searchTerm.trim().toLowerCase();
   const filteredRecipes: IRecipeSummary[] = useMemo(
     (): IRecipeSummary[] =>
-      recipes.filter((recipe: IRecipeSummary): boolean => {
+      filterRecipesByFolder(recipes, selectedFolderFilter).filter((recipe: IRecipeSummary): boolean => {
         if (normalizedSearchTerm.length === 0) {
           return true;
         }
@@ -109,7 +119,7 @@ function LibraryPage(): ReactElement {
           .toLowerCase()
           .includes(normalizedSearchTerm);
       }),
-    [normalizedSearchTerm, recipes],
+    [normalizedSearchTerm, recipes, selectedFolderFilter],
   );
 
   useEffect((): void => {
@@ -334,41 +344,51 @@ function LibraryPage(): ReactElement {
         </div>
       </section>
 
-      {visibleLibraryImports.length > 0 ? (
-        <div aria-label="Recipes being imported" aria-live="polite" className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-          {visibleLibraryImports.map((item: ILibraryImport): ReactElement => (
-            <ImportingRecipeCard item={item} key={item.clientId} />
-          ))}
-        </div>
-      ) : null}
+      <div className="grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start">
+        <FolderSidebar
+          folders={folders}
+          onSelectFilter={setSelectedFolderFilter}
+          recipes={recipes}
+          selectedFilter={selectedFolderFilter}
+        />
+        <div className="min-w-0 space-y-5">
+          {visibleLibraryImports.length > 0 ? (
+            <div aria-label="Recipes being imported" aria-live="polite" className="grid gap-5 md:grid-cols-2">
+              {visibleLibraryImports.map((item: ILibraryImport): ReactElement => (
+                <ImportingRecipeCard item={item} key={item.clientId} />
+              ))}
+            </div>
+          ) : null}
 
-      {recipesQuery.isPending ? (
-        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-          {[1, 2, 3].map((item: number): ReactElement => (
-            <Card className="h-72 animate-pulse bg-[var(--muted)]" key={item} />
-          ))}
+          {recipesQuery.isPending ? (
+            <div className="grid gap-5 md:grid-cols-2">
+              {[1, 2, 3].map((item: number): ReactElement => (
+                <Card className="h-72 animate-pulse bg-[var(--muted)]" key={item} />
+              ))}
+            </div>
+          ) : recipesQuery.isError ? (
+            <Card className="flex flex-col items-start gap-4 p-6">
+              <Badge variant="warning">Could not load library</Badge>
+              <p className="max-w-lg text-sm leading-6 text-[var(--muted-foreground)]">
+                {recipesQuery.error instanceof Error ? recipesQuery.error.message : 'Try again in a moment.'}
+              </p>
+              <Button onClick={(): void => void recipesQuery.refetch()} variant="outline">Try again</Button>
+            </Card>
+          ) : filteredRecipes.length === 0 ? (
+            <Card className="flex flex-col items-center justify-center px-6 py-16 text-center">
+              <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--primary-soft)] text-[var(--primary)]"><Search size={21} /></span>
+              <h3 className="font-display text-xl font-semibold">No recipes found</h3>
+              <p className="mt-2 max-w-md text-sm leading-6 text-[var(--muted-foreground)]">Try a different search, folder, or paste a recipe link above.</p>
+            </Card>
+          ) : (
+            <div className="grid gap-5 md:grid-cols-2">
+              {filteredRecipes.map((recipe: IRecipeSummary): ReactElement => (
+                <RecipeCard key={recipe.id} recipe={recipe} />
+              ))}
+            </div>
+          )}
         </div>
-      ) : recipesQuery.isError ? (
-        <Card className="flex flex-col items-start gap-4 p-6">
-          <Badge variant="warning">Could not load library</Badge>
-          <p className="max-w-lg text-sm leading-6 text-[var(--muted-foreground)]">
-            {recipesQuery.error instanceof Error ? recipesQuery.error.message : 'Try again in a moment.'}
-          </p>
-          <Button onClick={(): void => void recipesQuery.refetch()} variant="outline">Try again</Button>
-        </Card>
-      ) : filteredRecipes.length === 0 ? (
-        <Card className="flex flex-col items-center justify-center px-6 py-16 text-center">
-          <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--primary-soft)] text-[var(--primary)]"><Search size={21} /></span>
-          <h3 className="font-display text-xl font-semibold">No recipes found</h3>
-          <p className="mt-2 max-w-md text-sm leading-6 text-[var(--muted-foreground)]">Try a different search, or paste a recipe link above.</p>
-        </Card>
-      ) : (
-        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-          {filteredRecipes.map((recipe: IRecipeSummary): ReactElement => (
-            <RecipeCard key={recipe.id} recipe={recipe} />
-          ))}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
