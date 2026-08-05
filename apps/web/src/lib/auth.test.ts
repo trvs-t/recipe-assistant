@@ -1,10 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import type { AuthSession, AuthUser } from '@supabase/supabase-js';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   createLocalAutoSignInConfig,
+  createSupabaseAuthGateway,
   ensureLocalSession,
   type ILocalAuthGateway,
 } from './auth';
+
+import type { TypedSupabaseClient } from './supabase';
 
 interface IFakeAuthState {
   email: string | null;
@@ -61,5 +65,55 @@ describe('local automatic authentication', (): void => {
 
     expect(email).toBe('dev@example.com');
     expect(state.signInCount).toBe(1);
+  });
+});
+
+describe('Supabase authentication gateway', (): void => {
+  it('supports password sign-in, social sign-in, auth events, and sign-out', async (): Promise<void> => {
+    const user: AuthUser = { id: 'user-1', email: 'cook@example.com' } as unknown as AuthUser;
+    const authState = {
+      callback: null as ((event: string, session: AuthSession | null) => void) | null,
+    };
+    const unsubscribe = vi.fn();
+    const fakeClient: TypedSupabaseClient = {
+      auth: {
+        getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+        signInWithPassword: vi.fn().mockResolvedValue({ data: { user }, error: null }),
+        signInWithOAuth: vi.fn().mockResolvedValue({ data: { provider: 'google', url: null }, error: null }),
+        signOut: vi.fn().mockResolvedValue({ error: null }),
+        onAuthStateChange: vi.fn().mockImplementation(
+          (callback: (event: string, session: AuthSession | null) => void) => {
+            authState.callback = callback;
+            return { data: { subscription: { unsubscribe } } };
+          },
+        ),
+      },
+    } as unknown as TypedSupabaseClient;
+    const gateway = createSupabaseAuthGateway(fakeClient);
+
+    await expect(gateway.signInWithPassword('cook@example.com', 'secret')).resolves.toEqual({
+      id: 'user-1',
+      email: 'cook@example.com',
+    });
+    await gateway.signInWithSocial('google', 'https://recipes.example.com/');
+    await gateway.signOut();
+
+    const receivedUsers: Array<{ id: string; email: string | null } | null> = [];
+    const stopListening: () => void = gateway.onAuthStateChange((nextUser) => {
+      receivedUsers.push(nextUser);
+    });
+    const authStateCallback: ((event: string, session: AuthSession | null) => void) | null = authState.callback;
+    if (authStateCallback === null) {
+      throw new Error('The fake auth client did not register a listener.');
+    }
+    authStateCallback('SIGNED_IN', { user } as unknown as AuthSession);
+    authStateCallback('SIGNED_OUT', null);
+    stopListening();
+
+    expect(receivedUsers).toEqual([
+      { id: 'user-1', email: 'cook@example.com' },
+      null,
+    ]);
+    expect(unsubscribe).toHaveBeenCalledOnce();
   });
 });

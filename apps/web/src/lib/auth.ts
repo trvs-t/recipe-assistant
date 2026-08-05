@@ -1,3 +1,10 @@
+import type {
+  AuthChangeEvent,
+  AuthSession,
+  AuthUser,
+  Provider,
+} from '@supabase/supabase-js';
+
 import type { TypedSupabaseClient } from './supabase';
 
 export interface ILocalAutoSignInEnv {
@@ -14,6 +21,21 @@ export interface ILocalAutoSignInConfig {
 export interface ILocalAuthGateway {
   getCurrentUserEmail(): Promise<string | null>;
   signInWithPassword(email: string, password: string): Promise<string>;
+}
+
+export type SocialAuthProvider = Extract<Provider, 'github' | 'google'>;
+
+export interface IAuthenticatedUser {
+  id: string;
+  email: string | null;
+}
+
+export interface IAuthGateway {
+  getCurrentUser(): Promise<IAuthenticatedUser | null>;
+  signInWithPassword(email: string, password: string): Promise<IAuthenticatedUser>;
+  signInWithSocial(provider: SocialAuthProvider, redirectTo: string): Promise<void>;
+  signOut(): Promise<void>;
+  onAuthStateChange(callback: (user: IAuthenticatedUser | null) => void): () => void;
 }
 
 export function createLocalAutoSignInConfig(
@@ -43,6 +65,63 @@ export async function ensureLocalSession(
   }
 
   return gateway.signInWithPassword(config.email, config.password);
+}
+
+function mapAuthUser(user: AuthUser | null): IAuthenticatedUser | null {
+  return user === null ? null : { id: user.id, email: user.email ?? null };
+}
+
+function mapAuthSession(session: AuthSession | null): IAuthenticatedUser | null {
+  return mapAuthUser(session?.user ?? null);
+}
+
+export function createSupabaseAuthGateway(client: TypedSupabaseClient): IAuthGateway {
+  return {
+    async getCurrentUser(): Promise<IAuthenticatedUser | null> {
+      const result = await client.auth.getSession();
+      if (result.error !== null) {
+        throw new Error(`Unable to restore your session: ${result.error.message}`);
+      }
+
+      return mapAuthSession(result.data.session);
+    },
+    async signInWithPassword(email: string, password: string): Promise<IAuthenticatedUser> {
+      const result = await client.auth.signInWithPassword({ email, password });
+      if (result.error !== null) {
+        throw new Error(`Unable to sign in: ${result.error.message}`);
+      }
+
+      const user: IAuthenticatedUser | null = mapAuthUser(result.data.user);
+      if (user === null) {
+        throw new Error('Sign-in did not return an authenticated user.');
+      }
+
+      return user;
+    },
+    async signInWithSocial(provider: SocialAuthProvider, redirectTo: string): Promise<void> {
+      const result = await client.auth.signInWithOAuth({
+        provider,
+        options: { redirectTo },
+      });
+      if (result.error !== null) {
+        throw new Error(`Unable to start ${provider} sign-in: ${result.error.message}`);
+      }
+    },
+    async signOut(): Promise<void> {
+      const result = await client.auth.signOut();
+      if (result.error !== null) {
+        throw new Error(`Unable to sign out: ${result.error.message}`);
+      }
+    },
+    onAuthStateChange(callback: (user: IAuthenticatedUser | null) => void): () => void {
+      const subscription = client.auth.onAuthStateChange(
+        (_event: AuthChangeEvent, session: AuthSession | null): void => {
+          callback(mapAuthSession(session));
+        },
+      );
+      return (): void => subscription.data.subscription.unsubscribe();
+    },
+  };
 }
 
 export function createSupabaseLocalAuthGateway(client: TypedSupabaseClient): ILocalAuthGateway {

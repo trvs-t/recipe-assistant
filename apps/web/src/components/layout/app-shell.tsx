@@ -3,8 +3,9 @@ import type { ReactElement, ReactNode } from 'react';
 import { CookingPot } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
 
-import { useLocalAuthenticatedEmail } from '@/components/auth/local-auth-gate';
+import { useAuth } from '@/components/auth/local-auth-gate';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/cn';
 import { supabaseAdapter } from '@/lib/supabase';
 
@@ -13,7 +14,7 @@ export interface IAppShellProps {
 }
 
 export function AppShell({ children }: IAppShellProps): ReactElement {
-  const authenticatedEmail: string | null = useLocalAuthenticatedEmail();
+  const { actionPending, email: authenticatedEmail, enabled: authenticationEnabled, signOut } = useAuth();
 
   return (
     <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
@@ -29,14 +30,19 @@ export function AppShell({ children }: IAppShellProps): ReactElement {
             <span className="font-display text-lg font-semibold tracking-tight">Recipe Collector</span>
           </Link>
 
-          <div className="flex items-center">
+          <div className="flex items-center gap-3">
             <Badge className="hidden sm:inline-flex" variant={supabaseAdapter.mode === 'demo' ? 'warning' : 'success'}>
               {supabaseAdapter.mode === 'demo'
                 ? 'Demo data'
                 : authenticatedEmail === null
                   ? 'Connected'
-                  : `Connected as ${authenticatedEmail}`}
+                : `Connected as ${authenticatedEmail}`}
             </Badge>
+            {authenticationEnabled ? (
+              <Button disabled={actionPending} onClick={(): void => void signOut()} size="sm" variant="outline">
+                {actionPending ? 'Signing out…' : 'Sign out'}
+              </Button>
+            ) : null}
           </div>
         </div>
       </header>

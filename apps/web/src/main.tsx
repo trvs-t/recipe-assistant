@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 
-import { LocalAuthGate } from '@/components/auth/local-auth-gate';
+import { AuthGate } from '@/components/auth/local-auth-gate';
 import { queryClient } from '@/lib/query-client';
 
 import { router } from './router';
@@ -17,10 +17,10 @@ if (rootElement === null) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <LocalAuthGate>
+    <AuthGate>
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
       </QueryClientProvider>
-    </LocalAuthGate>
+    </AuthGate>
   </StrictMode>,
 );
