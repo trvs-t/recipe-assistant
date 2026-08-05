@@ -27,6 +27,9 @@ New to the project? Start here:
 ### Research
 - **[03-research-findings.md](./03-research-findings.md)** - Technology analysis, library comparisons, patterns
 
+### Product Planning
+- **[05-feature-wishlist.md](./05-feature-wishlist.md)** - Candidate user-facing features and acceptance criteria
+
 ### Decisions
 - **[04-decisions/](./04-decisions/)** - Architecture Decision Records (ADRs)
 
@@ -45,6 +48,7 @@ docs/
 ├── 03-research-findings.md            # Research (unified, ~650 lines)
 ├── 04-decisions/                      # ADRs
 │   └── 001-consolidated-import-endpoint.md
+├── 05-feature-wishlist.md              # Candidate product features and acceptance criteria
 └── README.md                          # This file
 ```
 
