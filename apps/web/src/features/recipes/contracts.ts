@@ -35,6 +35,14 @@ export interface IRecipeIngredient {
   unit: string | null;
   name: string;
   note: string | null;
+  variationOfId?: string | null;
+}
+
+export interface IIngredientEditInput {
+  quantity: number | null;
+  unit: string | null;
+  name: string;
+  note: string | null;
 }
 
 export interface IRecipeStep {

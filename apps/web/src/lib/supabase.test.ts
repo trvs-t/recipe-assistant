@@ -40,6 +40,30 @@ describe('Supabase adapter', (): void => {
     expect(restoredSubmission?.sourceText).toBe(sourceText);
   });
 
+  it('persists ingredient edits and variations in demo mode', async (): Promise<void> => {
+    const adapter = createSupabaseAdapter({ VITE_SUPABASE_URL: 'not-a-url' });
+    const recipeId: string = 'demo-miso-salmon';
+    const ingredientId: string = 'miso-salmon-1';
+
+    await adapter.updateIngredient(recipeId, ingredientId, {
+      name: 'trout',
+      quantity: 3,
+      unit: 'fillets',
+      note: 'skin on',
+    });
+    await adapter.addIngredientVariation(recipeId, {
+      variationOfId: ingredientId,
+      name: 'firm tofu',
+      quantity: 3,
+      unit: 'pieces',
+      note: null,
+    });
+
+    const recipe = await adapter.getRecipe(recipeId);
+    expect(recipe?.ingredients.find((item) => item.id === ingredientId)?.name).toBe('trout');
+    expect(recipe?.ingredients.some((item) => item.variationOfId === ingredientId && item.name === 'firm tofu')).toBe(true);
+  });
+
   it('recognizes every durable import status and only terminal statuses stop polling', (): void => {
     const statuses: string[] = [
       'queued',

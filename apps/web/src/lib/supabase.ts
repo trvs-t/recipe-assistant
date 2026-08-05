@@ -2,12 +2,14 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 import {
   getDemoRecipe,
+  getDemoRecipes,
   getDemoRecipeSummaries,
 } from '@/features/recipes/demo-data';
 import {
   isRecipeStatus,
   type IImportRequest,
   type IImportSubmission as IContractImportSubmission,
+  type IIngredientEditInput,
   type IRecipe,
   type IRecipeIngredient,
   type IRecipeStep,
@@ -20,7 +22,7 @@ export interface ISupabaseEnv {
   VITE_SUPABASE_ANON_KEY?: string;
 }
 
-interface IRecipeRow {
+interface IRecipeRow extends Record<string, unknown> {
   id: string;
   title: string | null;
   source_url: string | null;
@@ -38,17 +40,19 @@ interface IRecipeRow {
   updated_at: string;
 }
 
-interface IIngredientRow {
+interface IIngredientRow extends Record<string, unknown> {
   id: string;
   recipe_id: string;
+  original_text: string;
   quantity: number | null;
   unit: string | null;
   name: string;
   notes: string | null;
   sort_order: number;
+  variation_of_id: string | null;
 }
 
-interface IStepRow {
+interface IStepRow extends Record<string, unknown> {
   id: string;
   recipe_id: string;
   instruction: string;
@@ -56,7 +60,7 @@ interface IStepRow {
   sort_order: number;
 }
 
-interface IRecipeImportJobRow {
+interface IRecipeImportJobRow extends Record<string, unknown> {
   id: string;
   user_id: string;
   source_url: string | null;
@@ -165,8 +169,8 @@ export interface ILocalDatabase {
       };
       ingredients: {
         Row: IIngredientRow;
-        Insert: Partial<IIngredientRow>;
-        Update: Partial<IIngredientRow>;
+        Insert: Record<string, unknown> & Partial<IIngredientRow>;
+        Update: Record<string, unknown> & Partial<IIngredientRow>;
         Relationships: [];
       };
       steps: {
@@ -193,8 +197,14 @@ export interface ISupabaseAdapter {
   listRecipes(): Promise<IRecipeSummary[]>;
   listImportSubmissions(): Promise<IImportSubmission[]>;
   getRecipe(recipeId: string): Promise<IRecipe | null>;
+  updateIngredient(recipeId: string, ingredientId: string, input: IIngredientEditInput): Promise<void>;
+  addIngredientVariation(recipeId: string, input: IIngredientVariationInput): Promise<void>;
   submitImport(request: IImportRequestWithIdempotencyKey): Promise<IImportSubmission>;
   getImportSubmission(submissionId: string): Promise<IImportSubmission | null>;
+}
+
+export interface IIngredientVariationInput extends IIngredientEditInput {
+  variationOfId: string;
 }
 
 export class SupabaseAdapterError extends Error {
@@ -468,6 +478,7 @@ function mapRecipeRow(row: IRecipeRow, ingredients: IIngredientRow[], steps: ISt
         unit: ingredient.unit,
         name: ingredient.name,
         note: ingredient.notes,
+        variationOfId: ingredient.variation_of_id,
       }),
     ),
     steps: sortedSteps.map(
@@ -729,6 +740,52 @@ function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
     return mapRecipeRow(recipeResult.data, ingredientsResult.data, stepsResult.data);
   }
 
+  async function updateIngredient(
+    recipeId: string,
+    ingredientId: string,
+    input: IIngredientEditInput,
+  ): Promise<void> {
+    const result = await client
+      .from('ingredients')
+      .update(toIngredientUpdateRow(input))
+      .eq('id', ingredientId)
+      .eq('recipe_id', recipeId)
+      .select('id')
+      .maybeSingle();
+
+    if (result.error) {
+      throw new SupabaseAdapterError('Unable to update this ingredient.', result.error);
+    }
+
+    if (result.data === null) {
+      throw new SupabaseAdapterError('This ingredient is no longer available.');
+    }
+  }
+
+  async function addIngredientVariation(
+    recipeId: string,
+    input: IIngredientVariationInput,
+  ): Promise<void> {
+    const result = await client
+      .from('ingredients')
+      .insert({
+        recipe_id: recipeId,
+        ...toIngredientInsertRow(input),
+        sort_order: 10_000,
+        variation_of_id: input.variationOfId,
+      })
+      .select('id')
+      .maybeSingle();
+
+    if (result.error) {
+      throw new SupabaseAdapterError('Unable to add this ingredient variation.', result.error);
+    }
+
+    if (result.data === null) {
+      throw new SupabaseAdapterError('The ingredient variation was not saved.');
+    }
+  }
+
   return {
     mode: 'remote',
     client,
@@ -755,6 +812,8 @@ function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
       return result.data.map(mapImportJobRow);
     },
     getRecipe: getRemoteRecipe,
+    updateIngredient,
+    addIngredientVariation,
     async submitImport(request: IImportRequestWithIdempotencyKey): Promise<IImportSubmission> {
       const sourceUrl: string | null = request.sourceUrl?.trim() || null;
       const sourceText: string | null = request.sourceText?.trim() || null;
@@ -823,6 +882,10 @@ function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
 }
 
 function createDemoAdapter(): ISupabaseAdapter {
+  const recipes: Map<string, IRecipe> = new Map<string, IRecipe>(
+    getDemoRecipes().map((recipe: IRecipe): [string, IRecipe] => [recipe.id, recipe]),
+  );
+  let variationCounter: number = 0;
   const submissions: Map<string, IImportSubmission> = new Map<string, IImportSubmission>(
     readDemoSubmissions().map((submission: IImportSubmission): [string, IImportSubmission] => [submission.id, submission]),
   );
@@ -840,7 +903,47 @@ function createDemoAdapter(): ISupabaseAdapter {
       );
     },
     async getRecipe(recipeId: string): Promise<IRecipe | null> {
-      return getDemoRecipe(recipeId);
+      const recipe: IRecipe | undefined = recipes.get(recipeId);
+      return recipe === undefined ? getDemoRecipe(recipeId) : copyDemoRecipe(recipe);
+    },
+    async updateIngredient(
+      recipeId: string,
+      ingredientId: string,
+      input: IIngredientEditInput,
+    ): Promise<void> {
+      const recipe: IRecipe = getDemoRecipeForMutation(recipes, recipeId);
+      const ingredient: IRecipeIngredient | undefined = recipe.ingredients.find(
+        (item: IRecipeIngredient): boolean => item.id === ingredientId,
+      );
+      if (ingredient === undefined) {
+        throw new SupabaseAdapterError('This ingredient is no longer available.');
+      }
+
+      Object.assign(ingredient, input);
+      recipe.updatedAt = new Date().toISOString();
+    },
+    async addIngredientVariation(
+      recipeId: string,
+      input: IIngredientVariationInput,
+    ): Promise<void> {
+      const recipe: IRecipe = getDemoRecipeForMutation(recipes, recipeId);
+      const sourceIngredient: IRecipeIngredient | undefined = recipe.ingredients.find(
+        (item: IRecipeIngredient): boolean => item.id === input.variationOfId,
+      );
+      if (sourceIngredient === undefined) {
+        throw new SupabaseAdapterError('The source ingredient is no longer available.');
+      }
+
+      variationCounter += 1;
+      recipe.ingredients.push({
+        id: `demo-variation-${Date.now()}-${variationCounter}`,
+        quantity: input.quantity,
+        unit: input.unit,
+        name: input.name,
+        note: input.note,
+        variationOfId: sourceIngredient.id,
+      });
+      recipe.updatedAt = new Date().toISOString();
     },
     async submitImport(request: IImportRequestWithIdempotencyKey): Promise<IImportSubmission> {
       demoImportSubmissionCounter += 1;
@@ -872,6 +975,71 @@ function createDemoAdapter(): ISupabaseAdapter {
       return submissions.get(submissionId) ?? null;
     },
   };
+}
+
+function getDemoRecipeForMutation(recipes: Map<string, IRecipe>, recipeId: string): IRecipe {
+  const recipe: IRecipe | undefined = recipes.get(recipeId);
+  if (recipe === undefined) {
+    throw new SupabaseAdapterError('That recipe is no longer available.');
+  }
+
+  return recipe;
+}
+
+function copyDemoRecipe(recipe: IRecipe): IRecipe {
+  return {
+    ...recipe,
+    tags: [...recipe.tags],
+    ingredients: recipe.ingredients.map((ingredient: IRecipeIngredient): IRecipeIngredient => ({ ...ingredient })),
+    steps: recipe.steps.map((step) => ({ ...step })),
+    flow: recipe.flow === undefined || recipe.flow === null
+      ? recipe.flow
+      : {
+        derivation: recipe.flow.derivation,
+        nodes: recipe.flow.nodes.map((node) => ({ ...node, ingredientIds: [...node.ingredientIds] })),
+        edges: recipe.flow.edges.map((edge) => ({ ...edge })),
+      },
+  };
+}
+
+function toIngredientUpdateRow(input: IIngredientEditInput): {
+  quantity: number | null;
+  unit: string | null;
+  name: string;
+  notes: string | null;
+} {
+  const unit: string | null = normalizeOptionalText(input.unit);
+  const note: string | null = normalizeOptionalText(input.note);
+  return {
+    quantity: input.quantity,
+    unit,
+    name: input.name.trim(),
+    notes: note,
+  };
+}
+
+function toIngredientInsertRow(input: IIngredientEditInput): {
+  original_text: string;
+  quantity: number | null;
+  unit: string | null;
+  name: string;
+  notes: string | null;
+} {
+  const updateRow = toIngredientUpdateRow(input);
+  return {
+    ...updateRow,
+    original_text: formatOriginalIngredientText(updateRow.quantity, updateRow.unit, updateRow.name),
+  };
+}
+
+function formatOriginalIngredientText(quantity: number | null, unit: string | null, name: string): string {
+  const quantityLabel: string = quantity === null ? '' : quantity.toString();
+  return [quantityLabel, unit ?? '', name.trim()].filter((value: string): boolean => value.length > 0).join(' ');
+}
+
+function normalizeOptionalText(value: string | null): string | null {
+  const trimmedValue: string = value?.trim() ?? '';
+  return trimmedValue.length === 0 ? null : trimmedValue;
 }
 
 export function createSupabaseAdapter(env: ISupabaseEnv = getViteEnv()): ISupabaseAdapter {
