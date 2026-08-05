@@ -10,6 +10,7 @@
     "web:typecheck": "pnpm --dir apps/web typecheck",
     "web:test": "pnpm --dir apps/web test",
     "web:test:e2e": "pnpm --dir apps/web test:e2e",
+    "web:test:e2e:local": "pnpm --dir apps/web test:e2e:local",
     "web:build": "pnpm --dir apps/web build"
   }
 }

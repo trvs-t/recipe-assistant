@@ -34,6 +34,16 @@ export default defineConfig({
         baseURL: recoveryBaseUrl,
       },
     },
+    ...(process.env.LOCAL_E2E === 'true'
+      ? [{
+          name: 'local-supabase',
+          testMatch: /local-durable\.spec\.ts/,
+          use: {
+            ...devices['Desktop Chrome'],
+            baseURL: 'http://127.0.0.1:4175',
+          },
+        }]
+      : []),
   ],
   webServer: [
     {
@@ -54,5 +64,12 @@ export default defineConfig({
         VITE_SUPABASE_ANON_KEY: 'e2e-anon-key',
       },
     },
+    ...(process.env.LOCAL_E2E === 'true'
+      ? [{
+          command: 'pnpm exec vite --host 127.0.0.1 --port 4175 --strictPort',
+          url: 'http://127.0.0.1:4175',
+          reuseExistingServer: false,
+        }]
+      : []),
   ],
 });

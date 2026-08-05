@@ -1,6 +1,6 @@
-import type { ReactElement } from 'react';
+import { useEffect, type ReactElement } from 'react';
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Check, ExternalLink, LoaderCircle } from 'lucide-react';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 
@@ -8,7 +8,7 @@ import { ImportRecoveryPanel } from '@/components/recipes/import-recovery-panel'
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useImportSubmissionQuery } from '@/features/recipes/queries';
+import { recipeQueryKeys, useImportSubmissionQuery } from '@/features/recipes/queries';
 import { formatDate, getSourceLabel } from '@/lib/format';
 import {
   createImportIdempotencyKey,
@@ -42,6 +42,7 @@ const statusSteps: readonly IStatusStep[] = [
 function ImportStatusPage(): ReactElement {
   const { submissionId } = Route.useParams();
   const navigate = useNavigate();
+  const queryClient: QueryClient = useQueryClient();
   const submissionQuery = useImportSubmissionQuery(submissionId);
   const retryImportMutation = useMutation<IImportSubmission, Error, string>({
     mutationFn: (sourceUrl: string): Promise<IImportSubmission> => {
@@ -52,6 +53,18 @@ function ImportStatusPage(): ReactElement {
       return supabaseAdapter.submitImport(request);
     },
   });
+  const submissionForInvalidation: IImportSubmission | null | undefined = submissionQuery.data;
+  const completedRecipeId: string | null = submissionForInvalidation !== undefined
+    && submissionForInvalidation !== null
+    && (submissionForInvalidation.status === 'completed' || submissionForInvalidation.status === 'parsed')
+    ? submissionForInvalidation.recipeId
+    : null;
+
+  useEffect((): void => {
+    if (completedRecipeId !== null) {
+      void queryClient.invalidateQueries({ queryKey: recipeQueryKeys.all });
+    }
+  }, [completedRecipeId, queryClient]);
 
   if (submissionQuery.isPending) {
     return <StatusLoading />;

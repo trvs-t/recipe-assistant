@@ -3,6 +3,7 @@ import { useState, type ReactElement, type ReactNode } from 'react';
 import { ChevronRight, CookingPot, Menu, X } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
 
+import { useLocalAuthenticatedEmail } from '@/components/auth/local-auth-gate';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/cn';
@@ -26,6 +27,7 @@ const navItems: INavItem[] = [
 
 export function AppShell({ children }: IAppShellProps): ReactElement {
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
+  const authenticatedEmail: string | null = useLocalAuthenticatedEmail();
 
   return (
     <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
@@ -57,7 +59,11 @@ export function AppShell({ children }: IAppShellProps): ReactElement {
 
           <div className="flex items-center gap-3">
             <Badge className="hidden sm:inline-flex" variant={supabaseAdapter.mode === 'demo' ? 'warning' : 'success'}>
-              {supabaseAdapter.mode === 'demo' ? 'Demo data' : 'Connected'}
+              {supabaseAdapter.mode === 'demo'
+                ? 'Demo data'
+                : authenticatedEmail === null
+                  ? 'Connected'
+                  : `Connected as ${authenticatedEmail}`}
             </Badge>
             <Link className="hidden md:block" to="/import">
               <Button size="sm">
