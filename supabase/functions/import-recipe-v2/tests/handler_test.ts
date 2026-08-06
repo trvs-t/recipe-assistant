@@ -6,6 +6,7 @@ import {
 import {
   type AiNormalizationAdapter,
   type ErrorCode,
+  type IngredientLinkingAdapter,
   type NormalizedRecipeDraft,
   type SourceFetcher,
 } from "../types.ts";
@@ -190,4 +191,31 @@ Deno.test("normalizes text claims without calling the URL fetcher", async (): Pr
 
   assertEquals(result.status, "completed");
   assertEquals(gateway.normalizedContent, textRecipe);
+});
+
+Deno.test("ingredient-linking failures fall back without failing the import", async (): Promise<void> => {
+  const gateway: FakeGateway = new FakeGateway();
+  const dependenciesForWorker = dependencies(gateway);
+  const ingredient_linker: IngredientLinkingAdapter = {
+    link(): Promise<null> {
+      return Promise.reject(new Error("linking service unavailable"));
+    },
+  };
+  const claim: ClaimedRecipeImport = {
+    message_id: 1,
+    job_id: "job-1",
+    source_url: null,
+    source_text: textRecipe,
+    attempt_number: 1,
+    max_attempts: 3,
+  };
+
+  const result = await processClaimedImport(claim, {
+    gateway,
+    source_fetcher: dependenciesForWorker.source_fetcher,
+    ai_normalizer: dependenciesForWorker.ai_normalizer,
+    ingredient_linker,
+  });
+
+  assertEquals(result.status, "completed");
 });

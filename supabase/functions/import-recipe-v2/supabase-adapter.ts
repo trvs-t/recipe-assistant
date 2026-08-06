@@ -114,7 +114,7 @@ export class SupabaseRecipeImportGateway implements RecipeImportGateway {
   async enqueueRecipeImport(
     input: EnqueueRecipeImportInput,
   ): Promise<EnqueueRecipeImportResult> {
-    const result: SupabaseCallResult = await this.transport.rpc(
+    const textImportResult: SupabaseCallResult = await this.transport.rpc(
       "enqueue_recipe_import_with_text",
       {
         p_user_id: input.user_id,
@@ -123,6 +123,19 @@ export class SupabaseRecipeImportGateway implements RecipeImportGateway {
         p_idempotency_key: input.idempotency_key,
       },
     );
+    const isUrlOnlyImport: boolean = input.source_text === undefined ||
+      input.source_text === null;
+    const result: SupabaseCallResult = isUrlOnlyImport &&
+        isMissingTextImportFunctionError(textImportResult.error)
+      ? await this.transport.rpc(
+        "enqueue_recipe_import",
+        {
+          p_user_id: input.user_id,
+          p_source_url: input.source_url,
+          p_idempotency_key: input.idempotency_key,
+        },
+      )
+      : textImportResult;
     throwOnSupabaseError(result, "Unable to enqueue the recipe import");
     const row: Record<string, unknown> = firstRow(result.data);
     const job_id: string = requiredString(row, "job_id");
@@ -392,6 +405,32 @@ function errorText(value: unknown): string {
     return value.message;
   }
   return "Supabase request failed";
+}
+
+export function isMissingTextImportFunctionError(error: unknown): boolean {
+  if (!isRecord(error)) {
+    return false;
+  }
+
+  const code: unknown = error["code"];
+  const searchableText: string = [
+    error["message"],
+    error["details"],
+    error["hint"],
+  ]
+    .filter((value: unknown): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  const referencesTextImportFunction: boolean = searchableText.includes(
+    "enqueue_recipe_import_with_text",
+  );
+  return referencesTextImportFunction && (
+    code === "42883" ||
+    code === "PGRST202" ||
+    searchableText.includes("does not exist") ||
+    searchableText.includes("schema cache") ||
+    searchableText.includes("could not find")
+  );
 }
 
 function unauthorized(message: string): PipelineError {

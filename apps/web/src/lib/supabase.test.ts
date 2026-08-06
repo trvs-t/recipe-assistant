@@ -1,10 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   createImportIdempotencyKey,
+  createRemoteAdapter,
   createSupabaseAdapter,
   isImportJobStatus,
+  isMissingFolderSchemaError,
   isTerminalImportStatus,
+  type TypedSupabaseClient,
 } from './supabase';
 
 describe('Supabase adapter', (): void => {
@@ -120,5 +123,59 @@ describe('Supabase adapter', (): void => {
 
     expect(firstKey.length).toBeGreaterThan(0);
     expect(secondKey).not.toBe(firstKey);
+  });
+
+  it('keeps the recipe library usable while the folder migration is missing', async (): Promise<void> => {
+    const missingFolderTableError = {
+      code: 'PGRST205',
+      message: "Could not find the table 'public.recipe_folders' in the schema cache",
+    };
+    const recipeRow = {
+      id: 'recipe-1',
+      title: 'Rice bowl',
+      source_url: null,
+      source_text: null,
+      description: 'A simple bowl',
+      prep_time_minutes: 5,
+      cook_time_minutes: 10,
+      servings: 2,
+      dietary_tags: [],
+      cuisine_type: null,
+      status: 'parsed',
+      parse_error: null,
+      flow_graph: { derivation: 'linear_fallback', nodes: [], edges: [] },
+      created_at: '2026-08-06T00:00:00.000Z',
+      updated_at: '2026-08-06T00:00:00.000Z',
+    };
+    const fakeClient: TypedSupabaseClient = {
+      from: vi.fn((table: string): unknown => {
+        if (table === 'recipes') {
+          return {
+            select: vi.fn(() => ({
+              order: vi.fn(async () => ({ data: [recipeRow], error: null })),
+            })),
+          };
+        }
+        if (table === 'recipe_folders') {
+          return {
+            select: vi.fn(async () => ({ data: null, error: missingFolderTableError })),
+          };
+        }
+        return {
+          select: vi.fn(() => ({
+            order: vi.fn(async () => ({ data: null, error: missingFolderTableError })),
+          })),
+        };
+      }),
+    } as unknown as TypedSupabaseClient;
+
+    expect(isMissingFolderSchemaError(missingFolderTableError)).toBe(true);
+    expect(isMissingFolderSchemaError({ code: '42501', message: 'permission denied' })).toBe(false);
+
+    const adapter = createRemoteAdapter(fakeClient);
+    await expect(adapter.listRecipes()).resolves.toEqual([
+      expect.objectContaining({ id: 'recipe-1', folderIds: [] }),
+    ]);
+    await expect(adapter.listFolders()).resolves.toEqual([]);
   });
 });

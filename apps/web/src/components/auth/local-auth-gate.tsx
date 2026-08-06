@@ -233,7 +233,7 @@ export function useLocalAuthenticatedEmail(): string | null {
   return useAuth().email;
 }
 
-function SignInPanel({ error, onSignInWithPassword, onSignInWithSocial, pending }: ISignInPanelProps): ReactElement {
+export function SignInPanel({ error, onSignInWithPassword, onSignInWithSocial, pending }: ISignInPanelProps): ReactElement {
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [validationMessage, setValidationMessage] = useState<string | null>(null);

@@ -260,6 +260,40 @@ export class SupabaseAdapterError extends Error {
   }
 }
 
+/**
+ * The web client can be deployed before a Supabase migration reaches the
+ * project. Folder reads should not make the existing recipe library unusable
+ * during that short rollout window.
+ */
+export function isMissingFolderSchemaError(error: unknown): boolean {
+  if (!isRecord(error)) {
+    return false;
+  }
+
+  const code: unknown = error['code'];
+  const searchableText: string = [error['message'], error['details'], error['hint']]
+    .filter((value: unknown): value is string => typeof value === 'string')
+    .join(' ')
+    .toLowerCase();
+  const referencesFolderFeature: boolean = searchableText.includes('folder') ||
+    searchableText.includes('recipe_folders');
+  return referencesFolderFeature && (
+    code === '42P01' ||
+    code === 'PGRST202' ||
+    code === 'PGRST205' ||
+    searchableText.includes('does not exist') ||
+    searchableText.includes('schema cache') ||
+    searchableText.includes('could not find')
+  );
+}
+
+function folderSchemaUnavailableError(cause: unknown): SupabaseAdapterError {
+  return new SupabaseAdapterError(
+    'Recipe folders are not available until the latest database migration is applied.',
+    cause,
+  );
+}
+
 function getViteEnv(): ISupabaseEnv {
   return {
     VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL,
@@ -785,7 +819,7 @@ function requireFolderName(value: string): string {
   return normalizeFolderName(value);
 }
 
-function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
+export function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
   async function getRemoteRecipe(recipeId: string): Promise<IRecipe | null> {
     const recipeResult = await client
       .from('recipes')
@@ -814,19 +848,22 @@ function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
     if (stepsResult.error) {
       throw new SupabaseAdapterError('Unable to load this recipe\'s steps.', stepsResult.error);
     }
-    if (folderLinksResult.error) {
+    if (folderLinksResult.error && !isMissingFolderSchemaError(folderLinksResult.error)) {
       throw new SupabaseAdapterError('Unable to load this recipe\'s folders.', folderLinksResult.error);
     }
 
-    const folderIds: string[] = folderLinksResult.data.map(
-      (row: IRecipeFolderRow): string => row.folder_id,
-    );
+    const folderIds: string[] = folderLinksResult.error === null
+      ? folderLinksResult.data.map((row: IRecipeFolderRow): string => row.folder_id)
+      : [];
     return mapRecipeRow(recipeResult.data, ingredientsResult.data, stepsResult.data, folderIds);
   }
 
   async function listFolders(): Promise<IFolder[]> {
     const result = await client.from('folders').select('*').order('name', { ascending: true });
     if (result.error) {
+      if (isMissingFolderSchemaError(result.error)) {
+        return [];
+      }
       throw new SupabaseAdapterError('Unable to load your folders.', result.error);
     }
     return result.data.map(mapFolderRow);
@@ -840,6 +877,9 @@ function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
       .select('*')
       .single();
     if (result.error) {
+      if (isMissingFolderSchemaError(result.error)) {
+        throw folderSchemaUnavailableError(result.error);
+      }
       throw new SupabaseAdapterError('Unable to create that folder. Folder names must be unique.', result.error);
     }
     return mapFolderRow(result.data);
@@ -854,6 +894,9 @@ function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
       .select('id')
       .maybeSingle();
     if (result.error) {
+      if (isMissingFolderSchemaError(result.error)) {
+        throw folderSchemaUnavailableError(result.error);
+      }
       throw new SupabaseAdapterError('Unable to rename that folder. Folder names must be unique.', result.error);
     }
     if (result.data === null) {
@@ -869,6 +912,9 @@ function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
       .select('id')
       .maybeSingle();
     if (result.error) {
+      if (isMissingFolderSchemaError(result.error)) {
+        throw folderSchemaUnavailableError(result.error);
+      }
       throw new SupabaseAdapterError('Unable to delete that folder.', result.error);
     }
     if (result.data === null) {
@@ -883,6 +929,9 @@ function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
       p_folder_ids: uniqueFolderIds,
     });
     if (result.error) {
+      if (isMissingFolderSchemaError(result.error)) {
+        throw folderSchemaUnavailableError(result.error);
+      }
       throw new SupabaseAdapterError('Unable to update this recipe\'s folders.', result.error);
     }
   }
@@ -969,10 +1018,12 @@ function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapter {
       }
 
       const folderLinksResult = await client.from('recipe_folders').select('*');
-      if (folderLinksResult.error) {
+      if (folderLinksResult.error && !isMissingFolderSchemaError(folderLinksResult.error)) {
         throw new SupabaseAdapterError('Unable to load recipe folders.', folderLinksResult.error);
       }
-      const folderIdsByRecipeId: Map<string, string[]> = mapFolderLinks(folderLinksResult.data);
+      const folderIdsByRecipeId: Map<string, string[]> = folderLinksResult.error === null
+        ? mapFolderLinks(folderLinksResult.data)
+        : new Map<string, string[]>();
       return result.data.map((row: IRecipeRow): IRecipeSummary =>
         mapRecipeSummary(row, folderIdsByRecipeId.get(row.id) ?? []));
     },

@@ -19,6 +19,7 @@ import {
 } from "../openrouter-normalizer.ts";
 import {
   type ClaimedRecipeImport,
+  isMissingTextImportFunctionError,
   type RecipeImportGateway,
   type RecipeImportWorkerStage,
   type SupabaseCallResult,
@@ -1312,6 +1313,116 @@ Deno.test("Supabase gateway maps Auth and all four RPC contracts", async () => {
   ]);
   assertEquals(calls[0]?.args["p_user_id"], "user-1");
   assertEquals(calls[3]?.args["p_retry_delay_seconds"], 2);
+});
+
+Deno.test("URL imports fall back to the legacy enqueue RPC during text-migration rollout", async () => {
+  const calls: string[] = [];
+  const transport: SupabaseImportTransport = {
+    getUser(_access_token: string): Promise<SupabaseCallResult> {
+      return Promise.resolve({ data: { user: { id: "user-1" } }, error: null });
+    },
+    rpc(
+      function_name: string,
+      _args: Readonly<Record<string, unknown>>,
+    ): Promise<SupabaseCallResult> {
+      calls.push(function_name);
+      if (function_name === "enqueue_recipe_import_with_text") {
+        return Promise.resolve({
+          data: null,
+          error: {
+            code: "PGRST202",
+            message:
+              "Could not find the function public.enqueue_recipe_import_with_text in the schema cache",
+          },
+        });
+      }
+      return Promise.resolve({
+        data: [{
+          job_id: "legacy-job-1",
+          job_status: "queued",
+          recipe_id: null,
+          deduplicated: false,
+        }],
+        error: null,
+      });
+    },
+    markStage(
+      _claim: ClaimedRecipeImport,
+      _stage: RecipeImportWorkerStage,
+    ): Promise<SupabaseCallResult> {
+      return Promise.resolve({ data: null, error: null });
+    },
+  };
+  const gateway: SupabaseRecipeImportGateway = new SupabaseRecipeImportGateway(
+    transport,
+  );
+
+  assertEquals(
+    isMissingTextImportFunctionError({
+      code: "PGRST202",
+      message:
+        "Could not find the function public.enqueue_recipe_import_with_text",
+    }),
+    true,
+  );
+  assertEquals(
+    (await gateway.enqueueRecipeImport({
+      user_id: "user-1",
+      source_url,
+      idempotency_key: "legacy-key",
+    })).job_id,
+    "legacy-job-1",
+  );
+  assertDeepEquals(calls, [
+    "enqueue_recipe_import_with_text",
+    "enqueue_recipe_import",
+  ]);
+});
+
+Deno.test("plain-text imports do not fall back to a URL-only enqueue RPC", async () => {
+  const calls: string[] = [];
+  const transport: SupabaseImportTransport = {
+    getUser(_access_token: string): Promise<SupabaseCallResult> {
+      return Promise.resolve({ data: { user: { id: "user-1" } }, error: null });
+    },
+    rpc(
+      function_name: string,
+      _args: Readonly<Record<string, unknown>>,
+    ): Promise<SupabaseCallResult> {
+      calls.push(function_name);
+      return Promise.resolve({
+        data: null,
+        error: {
+          code: "PGRST202",
+          message:
+            "Could not find the function public.enqueue_recipe_import_with_text in the schema cache",
+        },
+      });
+    },
+    markStage(
+      _claim: ClaimedRecipeImport,
+      _stage: RecipeImportWorkerStage,
+    ): Promise<SupabaseCallResult> {
+      return Promise.resolve({ data: null, error: null });
+    },
+  };
+  const gateway: SupabaseRecipeImportGateway = new SupabaseRecipeImportGateway(
+    transport,
+  );
+  let didThrow: boolean = false;
+  try {
+    await gateway.enqueueRecipeImport({
+      user_id: "user-1",
+      source_url: null,
+      source_text: "A pasted recipe that needs the text-capable RPC.",
+      idempotency_key: "text-migration-key",
+    });
+  } catch {
+    didThrow = true;
+  }
+
+  assertEquals(didThrow, true);
+  assertDeepEquals(calls, ["enqueue_recipe_import_with_text"]);
 });
 
 Deno.test("default handler requires an explicit OpenRouter model", () => {
