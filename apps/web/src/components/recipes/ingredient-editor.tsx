@@ -38,6 +38,7 @@ import { supabaseAdapter, type IIngredientVariationInput } from '@/lib/supabase'
 import type { IIngredientEditInput, IRecipe, IRecipeIngredient } from '@/features/recipes/contracts';
 
 export interface IIngredientEditorProps {
+  onScaleFactorChange?: (scaleFactor: number) => void;
   recipe: IRecipe;
 }
 
@@ -73,7 +74,7 @@ const AUTOSAVE_DELAY_MS: number = 800;
 const MIN_SERVINGS: number = 1;
 const MAX_SERVINGS: number = 100;
 
-export function IngredientEditor({ recipe }: IIngredientEditorProps): ReactElement {
+export function IngredientEditor({ onScaleFactorChange, recipe }: IIngredientEditorProps): ReactElement {
   const queryClient = useQueryClient();
   const groups: IIngredientGroup[] = useMemo(
     (): IIngredientGroup[] => groupIngredients(recipe.ingredients),
@@ -159,6 +160,10 @@ export function IngredientEditor({ recipe }: IIngredientEditorProps): ReactEleme
     setActiveAmount(null);
     setSavedIndicator(null);
   }, [recipe.id, recipe.servings]);
+
+  useEffect((): void => {
+    onScaleFactorChange?.(scaleFactor);
+  }, [onScaleFactorChange, scaleFactor]);
 
   const desiredServings: number = recipe.servings * scaleFactor;
   const mutationError: Error | null = updateMutation.error ?? variationMutation.error ?? null;

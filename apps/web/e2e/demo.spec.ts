@@ -71,6 +71,29 @@ test('recipe detail keeps source traceability, synchronizes amounts, edits inlin
   await expect(page.getByRole('heading', { name: 'Recipe as a flow' })).toBeVisible();
   await expect(page.locator('.react-flow__node')).toHaveCount(4);
   await expect(page.locator('summary').filter({ hasText: 'Step-by-step recipe summary' })).toBeVisible();
+
+  await page.getByRole('link', { name: 'Start cooking' }).click();
+  await expect(page).toHaveURL(/\/recipes\/demo-miso-salmon\/cook\?servings=4$/);
+  const cookingDialog = page.getByRole('dialog', { name: 'Miso butter salmon' });
+  await expect(cookingDialog).toBeVisible();
+  await expect(cookingDialog.getByRole('heading', { name: 'Make the glaze' })).toBeVisible();
+  await expect(cookingDialog.getByLabel('Cooking progress: 1 of 4 steps')).toBeVisible();
+  const misoIngredient = cookingDialog.getByText('white miso').locator('xpath=ancestor::li');
+  const troutIngredient = cookingDialog.getByText('trout').locator('xpath=ancestor::li');
+  await expect(misoIngredient).toContainText('3 tbsp');
+  await expect(troutIngredient).toContainText('4 fillets');
+  await page.reload();
+  await expect(cookingDialog).toBeVisible();
+  await expect(misoIngredient).toContainText('3 tbsp');
+  const reloadedSalmonIngredient = cookingDialog.getByText('salmon').locator('xpath=ancestor::li');
+  await expect(reloadedSalmonIngredient).toContainText('4 fillets');
+  await expect(misoIngredient).toHaveAttribute('data-cooking-state', 'current');
+  await cookingDialog.getByRole('button', { name: 'Next step' }).click();
+  await expect(misoIngredient).toHaveAttribute('data-cooking-state', 'used');
+  await expect(reloadedSalmonIngredient).toHaveAttribute('data-cooking-state', 'current');
+  await cookingDialog.getByRole('link', { name: 'Close cooking mode' }).click();
+  await expect(page).toHaveURL(/\/recipes\/demo-miso-salmon$/);
+  await expect(cookingDialog).toHaveCount(0);
 });
 
 test('demo import appears in the library immediately and retains a durable progress link', async ({

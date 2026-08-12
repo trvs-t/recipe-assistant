@@ -1,7 +1,7 @@
-import type { ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 
 import { ArrowLeft, ChefHat, Clock3, ExternalLink, UsersRound } from 'lucide-react';
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { createFileRoute, Link, Outlet } from '@tanstack/react-router';
 
 import { IngredientEditor } from '@/components/recipes/ingredient-editor';
 import { IngredientLinkRepair } from '@/components/recipes/ingredient-link-repair';
@@ -22,6 +22,11 @@ export const Route = createFileRoute('/recipes/$recipeId')({
 function RecipeDetailPage(): ReactElement {
   const { recipeId } = Route.useParams();
   const recipeQuery = useRecipeQuery(recipeId);
+  const [scaleFactor, setScaleFactor] = useState<number>(1);
+
+  useEffect((): void => {
+    setScaleFactor(1);
+  }, [recipeId]);
 
   if (recipeQuery.isPending) {
     return <RecipeDetailLoading />;
@@ -56,6 +61,8 @@ function RecipeDetailPage(): ReactElement {
   }
 
   const totalMinutes: number = (recipe.prepMinutes ?? 0) + (recipe.cookMinutes ?? 0);
+
+  const adjustedServings: number = recipe.servings * scaleFactor;
 
   return (
     <div className="space-y-10">
@@ -94,7 +101,12 @@ function RecipeDetailPage(): ReactElement {
                 </a>
               ) : null}
             </div>
-            <Link className="mt-7 inline-block" params={{ recipeId: recipe.id }} to="/recipes/$recipeId/cook">
+            <Link
+              className="mt-7 inline-block"
+              params={{ recipeId: recipe.id }}
+              search={{ servings: adjustedServings === recipe.servings ? undefined : adjustedServings }}
+              to="/recipes/$recipeId/cook"
+            >
               <Button size="lg">
                 <ChefHat size={18} />
                 Start cooking
@@ -104,7 +116,7 @@ function RecipeDetailPage(): ReactElement {
         </section>
 
         <aside className="min-w-0 space-y-6 lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:max-h-[calc(100vh-7.5rem)] lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:pr-1">
-          <IngredientEditor recipe={recipe} />
+          <IngredientEditor onScaleFactorChange={setScaleFactor} recipe={recipe} />
           <RecipeFolderPicker recipe={recipe} />
         </aside>
 
@@ -113,6 +125,7 @@ function RecipeDetailPage(): ReactElement {
           <RecipeFlowDiagram recipe={recipe} />
         </section>
       </div>
+      <Outlet />
     </div>
   );
 }

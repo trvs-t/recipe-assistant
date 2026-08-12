@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -51,15 +51,23 @@ describe('CookingMode', (): void => {
     const user = userEvent.setup();
     render(<CookingMode recipe={recipe} />);
 
-    expect(screen.getByText('Warm the stock in a saucepan.')).toBeInTheDocument();
-    expect(screen.getByText('2 cups')).toBeInTheDocument();
+    const dialog: HTMLElement = screen.getByRole('dialog', { name: 'Test soup' });
+    expect(within(dialog).queryByText('Cooking mode')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('Progress')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/^Step 1$/)).not.toBeInTheDocument();
+    expect(within(dialog).getByText('Warm the stock in a saucepan.')).toBeInTheDocument();
+    expect(within(dialog).getByText('2 cups')).toBeInTheDocument();
     expect(screen.getByLabelText('Cooking progress: 1 of 2 steps')).toHaveAttribute('aria-valuenow', '1');
+    expect(within(dialog).getByText('stock').closest('li')).toHaveAttribute('data-cooking-state', 'current');
+    expect(within(dialog).getByText('salt').closest('li')).toHaveAttribute('data-cooking-state', 'upcoming');
 
     await user.click(screen.getByRole('button', { name: 'Next step' }));
 
     expect(screen.getByText('Season with salt, then serve hot.')).toBeInTheDocument();
     expect(screen.getByText('to taste')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Previous step' })).toBeEnabled();
+    expect(within(dialog).getByText('stock').closest('li')).toHaveAttribute('data-cooking-state', 'used');
+    expect(within(dialog).getByText('salt').closest('li')).toHaveAttribute('data-cooking-state', 'current');
 
     await user.keyboard('{ArrowLeft}');
 
@@ -70,5 +78,23 @@ describe('CookingMode', (): void => {
     const fallbackRecipe: IRecipe = { ...recipe, flow: undefined };
 
     expect(getCookingIngredients(fallbackRecipe, 'step-1')).toEqual(recipe.ingredients);
+    render(<CookingMode recipe={fallbackRecipe} />);
+
+    expect(screen.getByRole('heading', { name: 'Ingredients' })).toBeInTheDocument();
+    expect(screen.queryByText(/for this step/i)).not.toBeInTheDocument();
+    expect(screen.getByText('stock').closest('li')).toHaveAttribute('data-cooking-state', 'unlinked');
+  });
+
+  it('moves between steps with a horizontal touch swipe', (): void => {
+    render(<CookingMode recipe={recipe} />);
+    const stepPanel: HTMLElement = screen.getByTestId('cooking-step-panel');
+
+    fireEvent.touchStart(stepPanel, { touches: [{ clientX: 300, clientY: 100 }] });
+    fireEvent.touchEnd(stepPanel, { changedTouches: [{ clientX: 120, clientY: 110 }] });
+    expect(screen.getByText('Season with salt, then serve hot.')).toBeInTheDocument();
+
+    fireEvent.touchStart(stepPanel, { touches: [{ clientX: 120, clientY: 100 }] });
+    fireEvent.touchEnd(stepPanel, { changedTouches: [{ clientX: 300, clientY: 110 }] });
+    expect(screen.getByText('Warm the stock in a saucepan.')).toBeInTheDocument();
   });
 });
