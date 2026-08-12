@@ -54,7 +54,7 @@ describe('Supabase adapter', (): void => {
       unit: 'fillets',
       note: 'skin on',
     });
-    await adapter.addIngredientVariation(recipeId, {
+    const variationId: string = await adapter.addIngredientVariation(recipeId, {
       variationOfId: ingredientId,
       name: 'firm tofu',
       quantity: 3,
@@ -63,8 +63,47 @@ describe('Supabase adapter', (): void => {
     });
 
     const recipe = await adapter.getRecipe(recipeId);
+    expect(variationId).toMatch(/^demo-variation-/);
     expect(recipe?.ingredients.find((item) => item.id === ingredientId)?.name).toBe('trout');
     expect(recipe?.ingredients.some((item) => item.variationOfId === ingredientId && item.name === 'firm tofu')).toBe(true);
+  });
+
+  it('returns the inserted variation id and sends a complete ingredient row', async (): Promise<void> => {
+    let insertedRow: Record<string, unknown> | null = null;
+    const fakeClient: TypedSupabaseClient = {
+      from: vi.fn((): unknown => ({
+        insert: vi.fn((row: Record<string, unknown>): unknown => {
+          insertedRow = row;
+          return {
+            select: vi.fn((): unknown => ({
+              maybeSingle: vi.fn(async (): Promise<{ data: { id: string }; error: null }> => ({
+                data: { id: 'variation-1' },
+                error: null,
+              })),
+            })),
+          };
+        }),
+      })),
+    } as unknown as TypedSupabaseClient;
+    const adapter = createRemoteAdapter(fakeClient);
+
+    await expect(adapter.addIngredientVariation('recipe-1', {
+      variationOfId: 'ingredient-1',
+      name: 'firm tofu',
+      quantity: 3,
+      unit: 'pieces',
+      note: 'pressed',
+    })).resolves.toBe('variation-1');
+    expect(insertedRow).toEqual({
+      recipe_id: 'recipe-1',
+      original_text: '3 pieces firm tofu',
+      quantity: 3,
+      unit: 'pieces',
+      name: 'firm tofu',
+      notes: 'pressed',
+      sort_order: 10_000,
+      variation_of_id: 'ingredient-1',
+    });
   });
 
   it('repairs clear ingredient links in demo mode', async (): Promise<void> => {

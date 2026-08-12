@@ -3,7 +3,6 @@ import type { ReactElement } from 'react';
 import { ArrowLeft, ChefHat, Clock3, ExternalLink, UsersRound } from 'lucide-react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 
-import { PortionScaler } from '@/components/recipes/portion-scaler';
 import { IngredientEditor } from '@/components/recipes/ingredient-editor';
 import { IngredientLinkRepair } from '@/components/recipes/ingredient-link-repair';
 import { RecipeFolderPicker } from '@/components/recipes/recipe-folder-picker';
@@ -104,15 +103,11 @@ function RecipeDetailPage(): ReactElement {
       </section>
 
       <section className="max-w-2xl">
-        <PortionScaler recipe={recipe} />
+        <IngredientEditor recipe={recipe} />
       </section>
 
       <section className="max-w-2xl">
         <RecipeFolderPicker recipe={recipe} />
-      </section>
-
-      <section className="max-w-4xl">
-        <IngredientEditor recipe={recipe} />
       </section>
 
       <section>

@@ -43,3 +43,32 @@ test('local authenticated import survives refresh and is added to the library', 
     contentType: 'image/png',
   });
 });
+
+test('authenticated ingredient editing can add and select a variation', async ({
+  page,
+}: {
+  page: Page;
+}): Promise<void> => {
+  await page.goto('/');
+  await expect(page.getByText('Connected as dev@example.com')).toBeVisible();
+
+  await page.getByRole('link', { name: 'Miso Salmon', exact: true }).click();
+  const addVariantButton = page.locator('button[aria-label^="Add variant for"]').first();
+  const sourceLabel: string | null = await addVariantButton.getAttribute('aria-label');
+  expect(sourceLabel).not.toBeNull();
+  const sourceName: string = sourceLabel?.replace('Add variant for ', '') ?? '';
+  const editedSourceName: string = `${sourceName} edited`;
+
+  const sourceNameInput = page.getByRole('textbox', { name: `Name for ${sourceName}` });
+  await sourceNameInput.fill(editedSourceName);
+  await sourceNameInput.press('Enter');
+  await expect(page.getByRole('textbox', { name: `Name for ${editedSourceName}` })).toHaveValue(editedSourceName);
+  await expect(page.getByRole('status', { name: `${editedSourceName} saved` })).toBeVisible();
+
+  await page.getByRole('button', { name: `Add variant for ${editedSourceName}` }).click();
+
+  await expect(page.getByText('Unable to add this ingredient variation.')).not.toBeVisible();
+  await expect(page.getByLabel(`1 variant for ${editedSourceName}`)).toHaveText('1');
+  await expect(page.getByRole('button', { name: `Edit variants for ${editedSourceName}` })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: `Name for ${editedSourceName} alternative` })).toBeFocused();
+});

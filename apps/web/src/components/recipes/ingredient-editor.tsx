@@ -1,12 +1,30 @@
-import { useEffect, useState, type ChangeEvent, type ReactElement } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FocusEvent,
+  type KeyboardEvent,
+  type ReactElement,
+} from 'react';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Check, Pencil, Plus, Save, X } from 'lucide-react';
+import { Check, GitFork, Minus, Plus, RotateCcw, Scale } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { recipeQueryKeys } from '@/features/recipes/queries';
 import {
   ingredientToFormValues,
@@ -14,10 +32,8 @@ import {
   variationToFormValues,
   type IIngredientFormValues,
 } from '@/features/recipes/ingredient-editing';
-import {
-  supabaseAdapter,
-  type IIngredientVariationInput,
-} from '@/lib/supabase';
+import { scaleQuantityByFactor } from '@/features/recipes/scaling';
+import { supabaseAdapter, type IIngredientVariationInput } from '@/lib/supabase';
 
 import type { IIngredientEditInput, IRecipe, IRecipeIngredient } from '@/features/recipes/contracts';
 
@@ -32,72 +48,120 @@ interface IUpdateIngredientVariables {
 
 interface IAddVariationVariables {
   input: IIngredientVariationInput;
+  sourceId: string;
 }
+
+interface IPendingVariation {
+  ingredientId: string;
+  sourceId: string;
+}
+
+interface IIngredientGroup {
+  source: IRecipeIngredient;
+  options: IRecipeIngredient[];
+}
+
+const AUTOSAVE_DELAY_MS: number = 800;
+const MIN_SERVINGS: number = 1;
+const MAX_SERVINGS: number = 100;
 
 export function IngredientEditor({ recipe }: IIngredientEditorProps): ReactElement {
   const queryClient = useQueryClient();
-  const [drafts, setDrafts] = useState<Record<string, IIngredientFormValues>>(() => createDrafts(recipe.ingredients));
+  const groups: IIngredientGroup[] = useMemo(
+    (): IIngredientGroup[] => groupIngredients(recipe.ingredients),
+    [recipe.ingredients],
+  );
+  const allIngredientIds: Set<string> = useMemo(
+    (): Set<string> => new Set(recipe.ingredients.map((ingredient: IRecipeIngredient): string => ingredient.id)),
+    [recipe.ingredients],
+  );
+  const [drafts, setDrafts] = useState<Record<string, IIngredientFormValues>>(
+    (): Record<string, IIngredientFormValues> => createDrafts(recipe.ingredients),
+  );
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
-  const [variationSourceId, setVariationSourceId] = useState<string | null>(null);
-  const [variationDraft, setVariationDraft] = useState<IIngredientFormValues | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-
-  useEffect((): void => {
-    setDrafts(createDrafts(recipe.ingredients));
-    setFormErrors({});
-    setVariationSourceId(null);
-    setVariationDraft(null);
-    setNotice(null);
-  }, [recipe.id, recipe.ingredients]);
+  const [activeOptions, setActiveOptions] = useState<Record<string, string>>(
+    (): Record<string, string> => createActiveOptions(groups),
+  );
+  const [pendingVariation, setPendingVariation] = useState<IPendingVariation | null>(null);
+  const [savedIngredientId, setSavedIngredientId] = useState<string | null>(null);
+  const [scaleFactor, setScaleFactor] = useState<number>(1);
+  const [servingsInput, setServingsInput] = useState<string>(() => formatInputNumber(recipe.servings));
+  const [activeAmount, setActiveAmount] = useState<{ ingredientId: string; value: string } | null>(null);
+  const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const nameInputs = useRef<Map<string, HTMLInputElement>>(new Map());
 
   const updateMutation = useMutation<void, Error, IUpdateIngredientVariables>({
     mutationFn: (variables: IUpdateIngredientVariables): Promise<void> =>
       supabaseAdapter.updateIngredient(recipe.id, variables.ingredientId, variables.input),
-    onSuccess: (): void => {
-      setNotice('Ingredient saved.');
+    onSuccess: (_data: void, variables: IUpdateIngredientVariables): void => {
+      setSavedIngredientId(variables.ingredientId);
       void queryClient.invalidateQueries({ queryKey: recipeQueryKeys.detail(recipe.id) });
     },
   });
 
-  const variationMutation = useMutation<void, Error, IAddVariationVariables>({
-    mutationFn: (variables: IAddVariationVariables): Promise<void> =>
+  const variationMutation = useMutation<string, Error, IAddVariationVariables>({
+    mutationFn: (variables: IAddVariationVariables): Promise<string> =>
       supabaseAdapter.addIngredientVariation(recipe.id, variables.input),
-    onSuccess: (): void => {
-      setNotice('Ingredient variation added.');
-      setVariationSourceId(null);
-      setVariationDraft(null);
+    onSuccess: (ingredientId: string, variables: IAddVariationVariables): void => {
+      setPendingVariation({ ingredientId, sourceId: variables.sourceId });
+      setSavedIngredientId(ingredientId);
       void queryClient.invalidateQueries({ queryKey: recipeQueryKeys.detail(recipe.id) });
+    },
+    onError: (): void => {
+      setPendingVariation(null);
     },
   });
 
-  const updateDraft = (
-    ingredientId: string,
-    field: keyof IIngredientFormValues,
-    value: string,
-  ): void => {
-    setDrafts((currentDrafts: Record<string, IIngredientFormValues>): Record<string, IIngredientFormValues> => {
-      const currentDraft: IIngredientFormValues = currentDrafts[ingredientId] ?? {
-        name: '',
-        amount: '',
-        unit: '',
-        note: '',
-      };
-      return {
-        ...currentDrafts,
-        [ingredientId]: { ...currentDraft, [field]: value },
-      };
-    });
-    setFormErrors((currentErrors: Record<string, string>): Record<string, string> => {
-      const nextErrors: Record<string, string> = { ...currentErrors };
-      delete nextErrors[ingredientId];
-      return nextErrors;
-    });
-    setNotice(null);
-  };
+  useEffect((): (() => void) => (): void => {
+    for (const timer of saveTimers.current.values()) {
+      clearTimeout(timer);
+    }
+  }, []);
 
-  const saveIngredient = (ingredient: IRecipeIngredient): void => {
-    const draft: IIngredientFormValues = drafts[ingredient.id] ?? ingredientToFormValues(ingredient);
-    const parsed = parseIngredientFormValues(draft);
+  useEffect((): void => {
+    setDrafts((currentDrafts: Record<string, IIngredientFormValues>): Record<string, IIngredientFormValues> =>
+      mergeDrafts(recipe.ingredients, currentDrafts));
+    setActiveOptions((currentOptions: Record<string, string>): Record<string, string> => {
+      const nextOptions: Record<string, string> = {};
+      for (const group of groups) {
+        const currentOption: string | undefined = currentOptions[group.source.id];
+        nextOptions[group.source.id] = currentOption !== undefined && allIngredientIds.has(currentOption)
+          ? currentOption
+          : group.source.id;
+      }
+
+      if (pendingVariation !== null && allIngredientIds.has(pendingVariation.ingredientId)) {
+        nextOptions[pendingVariation.sourceId] = pendingVariation.ingredientId;
+      }
+      return nextOptions;
+    });
+    if (pendingVariation !== null && allIngredientIds.has(pendingVariation.ingredientId)) {
+      setPendingVariation(null);
+      window.setTimeout((): void => {
+        const nameInput: HTMLInputElement | undefined = nameInputs.current.get(pendingVariation.ingredientId);
+        nameInput?.focus();
+        nameInput?.select();
+      }, 0);
+    }
+  }, [allIngredientIds, groups, pendingVariation, recipe.ingredients]);
+
+  useEffect((): void => {
+    setScaleFactor(1);
+    setServingsInput(formatInputNumber(recipe.servings));
+    setActiveAmount(null);
+    setSavedIngredientId(null);
+  }, [recipe.id, recipe.servings]);
+
+  const desiredServings: number = recipe.servings * scaleFactor;
+  const mutationError: Error | null = updateMutation.error ?? variationMutation.error ?? null;
+
+  const commitIngredient = (ingredient: IRecipeIngredient, draftOverride?: IIngredientFormValues): void => {
+    clearSaveTimer(ingredient.id, saveTimers.current);
+    const draft: IIngredientFormValues = draftOverride ?? drafts[ingredient.id] ?? ingredientToFormValues(ingredient);
+    const parsed = parseIngredientFormValues({
+      ...draft,
+      amount: ingredient.quantity === null ? '' : ingredient.quantity.toString(),
+    });
     if (parsed.input === null || parsed.error !== null) {
       setFormErrors((currentErrors: Record<string, string>): Record<string, string> => ({
         ...currentErrors,
@@ -105,230 +169,346 @@ export function IngredientEditor({ recipe }: IIngredientEditorProps): ReactEleme
       }));
       return;
     }
-
-    setNotice(null);
+    if (ingredientMatchesInput(ingredient, parsed.input)) {
+      return;
+    }
+    setSavedIngredientId(null);
     updateMutation.mutate({ ingredientId: ingredient.id, input: parsed.input });
   };
 
-  const openVariation = (ingredient: IRecipeIngredient): void => {
-    setVariationSourceId(ingredient.id);
-    setVariationDraft(variationToFormValues(ingredient));
-    setNotice(null);
-    variationMutation.reset();
-  };
-
-  const cancelVariation = (): void => {
-    setVariationSourceId(null);
-    setVariationDraft(null);
-    variationMutation.reset();
-  };
-
-  const updateVariationDraft = (field: keyof IIngredientFormValues, value: string): void => {
-    setVariationDraft((currentDraft: IIngredientFormValues | null): IIngredientFormValues | null => (
-      currentDraft === null ? null : { ...currentDraft, [field]: value }
-    ));
-    setNotice(null);
-  };
-
-  const addVariation = (): void => {
-    if (variationSourceId === null || variationDraft === null) {
-      return;
+  const updateDraft = (
+    ingredient: IRecipeIngredient,
+    field: 'name' | 'unit' | 'note',
+    value: string,
+  ): void => {
+    const currentDraft: IIngredientFormValues = drafts[ingredient.id] ?? ingredientToFormValues(ingredient);
+    const nextDraft: IIngredientFormValues = { ...currentDraft, [field]: value };
+    if (savedIngredientId === ingredient.id) {
+      setSavedIngredientId(null);
     }
+    setDrafts((currentDrafts: Record<string, IIngredientFormValues>): Record<string, IIngredientFormValues> => ({
+      ...currentDrafts,
+      [ingredient.id]: nextDraft,
+    }));
+    setFormErrors((currentErrors: Record<string, string>): Record<string, string> => withoutKey(currentErrors, ingredient.id));
+    clearSaveTimer(ingredient.id, saveTimers.current);
+    saveTimers.current.set(
+      ingredient.id,
+      setTimeout((): void => commitIngredient(ingredient, nextDraft), AUTOSAVE_DELAY_MS),
+    );
+  };
 
+  const handleEditableKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.currentTarget.blur();
+    }
+  };
+
+  const handleServingsChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    const nextInput: string = event.target.value;
+    setServingsInput(nextInput);
+    const nextServings: number = Number(nextInput);
+    if (isValidServings(nextServings)) {
+      setScaleFactor(nextServings / recipe.servings);
+      setActiveAmount(null);
+    }
+  };
+
+  const changeServings = (amount: number): void => {
+    const currentServings: number = isValidServings(Number(servingsInput)) ? Number(servingsInput) : desiredServings;
+    const nextServings: number = roundInputNumber(
+      Math.min(MAX_SERVINGS, Math.max(MIN_SERVINGS, currentServings + amount)),
+    );
+    setServingsInput(formatInputNumber(nextServings));
+    setScaleFactor(nextServings / recipe.servings);
+    setActiveAmount(null);
+  };
+
+  const handleAmountFocus = (ingredient: IRecipeIngredient, scaledQuantity: number): void => {
+    setActiveAmount({ ingredientId: ingredient.id, value: formatInputNumber(scaledQuantity) });
+  };
+
+  const handleAmountChange = (ingredient: IRecipeIngredient, event: ChangeEvent<HTMLInputElement>): void => {
+    const nextValue: string = event.target.value;
+    setActiveAmount({ ingredientId: ingredient.id, value: nextValue });
+    const nextAmount: number = Number(nextValue);
+    if (ingredient.quantity !== null && isPositiveFinite(nextAmount)) {
+      const nextFactor: number = nextAmount / ingredient.quantity;
+      setScaleFactor(nextFactor);
+      setServingsInput(formatInputNumber(recipe.servings * nextFactor));
+    }
+  };
+
+  const handleAmountBlur = (ingredient: IRecipeIngredient, event: FocusEvent<HTMLInputElement>): void => {
+    if (!isPositiveFinite(Number(event.currentTarget.value)) && ingredient.quantity !== null) {
+      setActiveAmount({
+        ingredientId: ingredient.id,
+        value: formatInputNumber(ingredient.quantity * scaleFactor),
+      });
+    }
+  };
+
+  const resetScaling = (): void => {
+    setScaleFactor(1);
+    setServingsInput(formatInputNumber(recipe.servings));
+    setActiveAmount(null);
+  };
+
+  const selectOption = (group: IIngredientGroup, ingredient: IRecipeIngredient): void => {
+    setActiveOptions((currentOptions: Record<string, string>): Record<string, string> => ({
+      ...currentOptions,
+      [group.source.id]: ingredient.id,
+    }));
+  };
+
+  const addVariation = (source: IRecipeIngredient): void => {
+    const variationDraft: IIngredientFormValues = variationToFormValues(source);
     const parsed = parseIngredientFormValues(variationDraft);
-    if (parsed.input === null || parsed.error !== null) {
-      setNotice(parsed.error ?? 'Check the variation fields.');
+    if (parsed.input === null) {
       return;
     }
-
+    setSavedIngredientId(null);
     variationMutation.mutate({
-      input: {
-        ...parsed.input,
-        variationOfId: variationSourceId,
-      },
+      sourceId: source.id,
+      input: { ...parsed.input, variationOfId: source.id },
     });
   };
 
-  const mutationError: Error | null = updateMutation.error ?? variationMutation.error ?? null;
-
   return (
     <Card>
-      <CardHeader>
-        <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--primary)]">
-          <Pencil size={15} />
-          Ingredient notes
+      <CardHeader className="gap-1.5 p-4 sm:p-5">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--primary)]">
+          <Scale size={15} />
+          Ingredients
         </div>
-        <CardTitle>Make the recipe yours</CardTitle>
-        <CardDescription>Edit names or amounts, or add an alternative without losing the original ingredient.</CardDescription>
+        <CardTitle>Make it fit the table</CardTitle>
+        <CardDescription>Edit servings or any ingredient amount and the rest stay in sync.</CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          {recipe.ingredients.map((ingredient: IRecipeIngredient): ReactElement => {
+      <CardContent className="px-4 pb-4 sm:px-5 sm:pb-5">
+        <div aria-label="Serving scaler" className="mb-3 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1 rounded-xl bg-[var(--muted)] px-2 py-1" role="group">
+          <span className="pl-2 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground)]">Servings</span>
+          <div className="flex min-w-24 justify-end">
+            {scaleFactor !== 1 ? (
+              <Button aria-label={`Reset servings to ${recipe.servings}`} className="shrink-0" onClick={resetScaling} size="sm" variant="ghost">
+                <RotateCcw size={14} />
+                Reset to {recipe.servings}
+              </Button>
+            ) : null}
+          </div>
+          <div className="grid grid-cols-[2.5rem_3.5rem_2.5rem] items-center">
+            <Button aria-label="Decrease servings" disabled={desiredServings <= MIN_SERVINGS} onClick={(): void => changeServings(-1)} size="icon" variant="ghost">
+              <Minus size={16} />
+            </Button>
+            <Input aria-label="Servings" className="h-9 w-14 border-0 bg-transparent px-0 text-center text-xl font-bold shadow-none outline-none focus-visible:border-0 focus-visible:ring-0" max={MAX_SERVINGS} min={MIN_SERVINGS} onChange={handleServingsChange} step="any" type="number" value={servingsInput} />
+            <Button aria-label="Increase servings" disabled={desiredServings >= MAX_SERVINGS} onClick={(): void => changeServings(1)} size="icon" variant="ghost">
+              <Plus size={16} />
+            </Button>
+          </div>
+        </div>
+
+        <div className="divide-y divide-[var(--border)] overflow-hidden rounded-xl border border-[var(--border)]">
+          {groups.map((group: IIngredientGroup): ReactElement => {
+            const activeId: string = activeOptions[group.source.id] ?? group.source.id;
+            const ingredient: IRecipeIngredient = group.options.find((option: IRecipeIngredient): boolean => option.id === activeId) ?? group.source;
             const draft: IIngredientFormValues = drafts[ingredient.id] ?? ingredientToFormValues(ingredient);
+            const scaledQuantity: number | null = scaleQuantityByFactor(ingredient.quantity, scaleFactor);
+            const amountValue: string = activeAmount?.ingredientId === ingredient.id
+              ? activeAmount.value
+              : scaledQuantity === null ? '' : formatInputNumber(scaledQuantity);
+            const isActiveAnchor: boolean = activeAmount?.ingredientId === ingredient.id;
+            const variantCount: number = group.options.length - 1;
+            const isSaved: boolean = savedIngredientId === ingredient.id;
             const isSaving: boolean = updateMutation.isPending && updateMutation.variables?.ingredientId === ingredient.id;
-            const isVariationSource: boolean = variationSourceId === ingredient.id;
 
             return (
-              <div className="rounded-xl border border-[var(--border)] p-4" key={ingredient.id}>
-                <div className="mb-3 flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
-                      {ingredient.variationOfId === undefined || ingredient.variationOfId === null ? 'Ingredient' : 'Variation'}
-                    </p>
-                    <p className="mt-1 text-sm text-[var(--muted-foreground)]">Edit the saved ingredient details.</p>
-                  </div>
-                  <Button
-                    aria-label={`Add variation for ${ingredient.name}`}
-                    disabled={updateMutation.isPending || variationMutation.isPending}
-                    onClick={(): void => openVariation(ingredient)}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <Plus size={15} />
-                    Add variation
-                  </Button>
+              <div className={`relative grid grid-cols-[2rem_minmax(0,1fr)_minmax(8.5rem,0.58fr)] gap-x-1.5 px-2.5 py-2 transition-colors sm:px-3 ${isSaved ? 'bg-[var(--success-soft)]' : isActiveAnchor ? 'bg-[var(--primary-soft)]' : isSaving ? 'bg-[var(--muted)]' : ''}`} key={group.source.id}>
+                <div className="relative">
+                  {variantCount > 0 ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button aria-label={`Edit variants for ${group.source.name}`} className="relative h-8 w-8 overflow-visible rounded-lg" disabled={variationMutation.isPending} size="icon" variant="ghost">
+                          <GitFork size={15} />
+                          <span aria-label={`${variantCount} ${variantCount === 1 ? 'variant' : 'variants'} for ${group.source.name}`} className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--primary)] px-1 text-[10px] font-bold leading-none text-white">
+                            {variantCount}
+                          </span>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        <DropdownMenuLabel>Choose variant</DropdownMenuLabel>
+                        <DropdownMenuRadioGroup value={ingredient.id}>
+                          {group.options.map((option: IRecipeIngredient): ReactElement => (
+                            <DropdownMenuRadioItem key={option.id} onSelect={(): void => selectOption(group, option)} value={option.id}>
+                              {drafts[option.id]?.name ?? option.name}
+                            </DropdownMenuRadioItem>
+                          ))}
+                        </DropdownMenuRadioGroup>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="font-medium text-[var(--primary)]" onSelect={(): void => addVariation(group.source)}>
+                          <Plus size={14} />
+                          Add variant
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : (
+                    <Button aria-label={`Add variant for ${group.source.name}`} className="h-8 w-8 rounded-lg" disabled={variationMutation.isPending} onClick={(): void => addVariation(group.source)} size="icon" variant="ghost">
+                      <Plus size={15} />
+                    </Button>
+                  )}
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-[minmax(0,1.7fr)_minmax(6rem,0.7fr)_minmax(6rem,0.8fr)]">
-                  <div>
-                    <Label htmlFor={`ingredient-name-${ingredient.id}`}>Name</Label>
-                    <Input
-                      className="mt-1.5"
-                      id={`ingredient-name-${ingredient.id}`}
-                      onChange={(event: ChangeEvent<HTMLInputElement>): void => updateDraft(ingredient.id, 'name', event.target.value)}
-                      value={draft.name}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor={`ingredient-amount-${ingredient.id}`}>Amount</Label>
-                    <Input
-                      className="mt-1.5"
-                      id={`ingredient-amount-${ingredient.id}`}
-                      min="0"
-                      onChange={(event: ChangeEvent<HTMLInputElement>): void => updateDraft(ingredient.id, 'amount', event.target.value)}
-                      step="any"
-                      type="number"
-                      value={draft.amount}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor={`ingredient-unit-${ingredient.id}`}>Unit</Label>
-                    <Input
-                      className="mt-1.5"
-                      id={`ingredient-unit-${ingredient.id}`}
-                      onChange={(event: ChangeEvent<HTMLInputElement>): void => updateDraft(ingredient.id, 'unit', event.target.value)}
-                      placeholder="e.g. cups"
-                      value={draft.unit}
-                    />
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <Label htmlFor={`ingredient-note-${ingredient.id}`}>Note</Label>
-                  <Input
-                    className="mt-1.5"
-                    id={`ingredient-note-${ingredient.id}`}
-                    onChange={(event: ChangeEvent<HTMLInputElement>): void => updateDraft(ingredient.id, 'note', event.target.value)}
-                    placeholder="Optional preparation note"
-                    value={draft.note}
+                <input
+                  aria-label={`Name for ${ingredient.name}`}
+                  className="h-8 min-w-0 bg-transparent px-1.5 text-sm font-medium outline-none"
+                  onBlur={(): void => commitIngredient(ingredient)}
+                  onChange={(event: ChangeEvent<HTMLInputElement>): void => updateDraft(ingredient, 'name', event.target.value)}
+                  onKeyDown={handleEditableKeyDown}
+                  ref={(element: HTMLInputElement | null): void => {
+                    if (element === null) nameInputs.current.delete(ingredient.id);
+                    else nameInputs.current.set(ingredient.id, element);
+                  }}
+                  value={draft.name}
+                />
+
+                <div className="flex min-w-0 items-center justify-end gap-1">
+                  <input
+                    aria-label={`Amount for ${ingredient.name}`}
+                    className="h-8 min-w-0 flex-1 bg-transparent px-1 text-right text-xl font-bold leading-none outline-none"
+                    disabled={!isScalable(ingredient)}
+                    min="0"
+                    onBlur={(event: FocusEvent<HTMLInputElement>): void => handleAmountBlur(ingredient, event)}
+                    onChange={(event: ChangeEvent<HTMLInputElement>): void => handleAmountChange(ingredient, event)}
+                    onFocus={(): void => {
+                      if (scaledQuantity !== null) handleAmountFocus(ingredient, scaledQuantity);
+                    }}
+                    onKeyDown={(event: KeyboardEvent<HTMLInputElement>): void => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+                    step="any"
+                    type="number"
+                    value={amountValue}
+                  />
+                  <input
+                    aria-label={`Unit for ${ingredient.name}`}
+                    className="h-8 w-14 bg-transparent px-1 text-xs text-[var(--muted-foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
+                    onBlur={(): void => commitIngredient(ingredient)}
+                    onChange={(event: ChangeEvent<HTMLInputElement>): void => updateDraft(ingredient, 'unit', event.target.value)}
+                    onKeyDown={handleEditableKeyDown}
+                    placeholder="unit"
+                    value={draft.unit}
                   />
                 </div>
-                {formErrors[ingredient.id] !== undefined ? (
-                  <p className="mt-2 text-sm text-[var(--destructive)]">{formErrors[ingredient.id]}</p>
-                ) : null}
-                <div className="mt-4 flex justify-end">
-                  <Button
-                    disabled={updateMutation.isPending || variationMutation.isPending}
-                    onClick={(): void => saveIngredient(ingredient)}
-                    size="sm"
-                    type="button"
-                  >
-                    <Save size={15} />
-                    {isSaving ? 'Saving…' : 'Save changes'}
-                  </Button>
-                </div>
 
-                {isVariationSource && variationDraft !== null ? (
-                  <div className="mt-4 rounded-xl bg-[var(--primary-soft)] p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold">Add a variation</p>
-                        <p className="mt-1 text-sm text-[var(--muted-foreground)]">The amount starts with the original value so you only need to change what differs.</p>
-                      </div>
-                      <Button aria-label="Cancel variation" onClick={cancelVariation} size="icon" type="button" variant="ghost">
-                        <X size={16} />
-                      </Button>
-                    </div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1.7fr)_minmax(6rem,0.7fr)_minmax(6rem,0.8fr)]">
-                      <div>
-                        <Label htmlFor={`variation-name-${ingredient.id}`}>Variation name</Label>
-                        <Input
-                          className="mt-1.5"
-                          id={`variation-name-${ingredient.id}`}
-                          onChange={(event: ChangeEvent<HTMLInputElement>): void => updateVariationDraft('name', event.target.value)}
-                          value={variationDraft.name}
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor={`variation-amount-${ingredient.id}`}>Amount</Label>
-                        <Input
-                          className="mt-1.5"
-                          id={`variation-amount-${ingredient.id}`}
-                          min="0"
-                          onChange={(event: ChangeEvent<HTMLInputElement>): void => updateVariationDraft('amount', event.target.value)}
-                          step="any"
-                          type="number"
-                          value={variationDraft.amount}
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor={`variation-unit-${ingredient.id}`}>Unit</Label>
-                        <Input
-                          className="mt-1.5"
-                          id={`variation-unit-${ingredient.id}`}
-                          onChange={(event: ChangeEvent<HTMLInputElement>): void => updateVariationDraft('unit', event.target.value)}
-                          value={variationDraft.unit}
-                        />
-                      </div>
-                    </div>
-                    <div className="mt-3">
-                      <Label htmlFor={`variation-note-${ingredient.id}`}>Note</Label>
-                      <Input
-                        className="mt-1.5"
-                        id={`variation-note-${ingredient.id}`}
-                        onChange={(event: ChangeEvent<HTMLInputElement>): void => updateVariationDraft('note', event.target.value)}
-                        placeholder="Optional preparation note"
-                        value={variationDraft.note}
-                      />
-                    </div>
-                    <div className="mt-4 flex justify-end">
-                      <Button
-                        disabled={variationMutation.isPending || updateMutation.isPending}
-                        onClick={addVariation}
-                        size="sm"
-                        type="button"
-                      >
-                        <Check size={15} />
-                        {variationMutation.isPending ? 'Adding…' : 'Add variation'}
-                      </Button>
-                    </div>
-                  </div>
+                <Input
+                  aria-label={`Notes for ${ingredient.name}`}
+                  className={`col-span-2 col-start-2 h-7 border-0 bg-transparent px-1.5 py-0 text-xs text-[var(--muted-foreground)] shadow-none outline-none focus-visible:border-0 focus-visible:ring-0 ${isSaved ? 'pr-16' : ''}`}
+                  onBlur={(): void => commitIngredient(ingredient)}
+                  onChange={(event: ChangeEvent<HTMLInputElement>): void => updateDraft(ingredient, 'note', event.target.value)}
+                  onKeyDown={handleEditableKeyDown}
+                  placeholder="Add a note"
+                  value={draft.note}
+                />
+                {isSaved ? (
+                  <span aria-label={`${draft.name.trim() || ingredient.name} saved`} className="absolute bottom-2 right-3 inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--success)]" role="status">
+                    <Check size={12} />
+                    Saved
+                  </span>
+                ) : null}
+                {formErrors[ingredient.id] !== undefined ? (
+                  <p className="col-span-2 col-start-2 mt-1 text-sm text-[var(--destructive)]">{formErrors[ingredient.id]}</p>
                 ) : null}
               </div>
             );
           })}
         </div>
-        {mutationError !== null ? <p className="mt-4 text-sm text-[var(--destructive)]">{mutationError.message}</p> : null}
-        {notice !== null && mutationError === null ? <p className="mt-4 text-sm text-[var(--primary)]">{notice}</p> : null}
+
+        <div aria-live="polite" className="mt-2 min-h-4 text-xs text-[var(--muted-foreground)]">
+          {mutationError !== null ? <span className="text-[var(--destructive)]">{mutationError.message}</span> : null}
+          {mutationError === null && (updateMutation.isPending || variationMutation.isPending) ? 'Saving changes…' : null}
+          {mutationError === null && !updateMutation.isPending && !variationMutation.isPending && savedIngredientId !== null ? (
+            <span className="inline-flex items-center gap-1 font-medium text-[var(--success)]"><Check size={12} /> Saved. Further changes save automatically.</span>
+          ) : null}
+          {mutationError === null && !updateMutation.isPending && !variationMutation.isPending && savedIngredientId === null ? 'Changes save automatically.' : null}
+        </div>
       </CardContent>
     </Card>
   );
 }
 
+function groupIngredients(ingredients: readonly IRecipeIngredient[]): IIngredientGroup[] {
+  const sourceIngredients: IRecipeIngredient[] = ingredients.filter(
+    (ingredient: IRecipeIngredient): boolean => ingredient.variationOfId === undefined || ingredient.variationOfId === null,
+  );
+  const knownSourceIds: Set<string> = new Set(sourceIngredients.map((ingredient: IRecipeIngredient): string => ingredient.id));
+  const orphanedVariations: IRecipeIngredient[] = ingredients.filter(
+    (ingredient: IRecipeIngredient): boolean => ingredient.variationOfId !== undefined && ingredient.variationOfId !== null && !knownSourceIds.has(ingredient.variationOfId),
+  );
+  return [...sourceIngredients, ...orphanedVariations].map((source: IRecipeIngredient): IIngredientGroup => ({
+    source,
+    options: [
+      source,
+      ...ingredients.filter((ingredient: IRecipeIngredient): boolean => ingredient.variationOfId === source.id),
+    ],
+  }));
+}
+
 function createDrafts(ingredients: readonly IRecipeIngredient[]): Record<string, IIngredientFormValues> {
   const drafts: Record<string, IIngredientFormValues> = {};
+  for (const ingredient of ingredients) drafts[ingredient.id] = ingredientToFormValues(ingredient);
+  return drafts;
+}
+
+function mergeDrafts(
+  ingredients: readonly IRecipeIngredient[],
+  currentDrafts: Record<string, IIngredientFormValues>,
+): Record<string, IIngredientFormValues> {
+  const drafts: Record<string, IIngredientFormValues> = {};
   for (const ingredient of ingredients) {
-    drafts[ingredient.id] = ingredientToFormValues(ingredient);
+    drafts[ingredient.id] = currentDrafts[ingredient.id] ?? ingredientToFormValues(ingredient);
   }
   return drafts;
+}
+
+function createActiveOptions(groups: readonly IIngredientGroup[]): Record<string, string> {
+  const activeOptions: Record<string, string> = {};
+  for (const group of groups) activeOptions[group.source.id] = group.source.id;
+  return activeOptions;
+}
+
+function clearSaveTimer(ingredientId: string, timers: Map<string, ReturnType<typeof setTimeout>>): void {
+  const timer: ReturnType<typeof setTimeout> | undefined = timers.get(ingredientId);
+  if (timer !== undefined) clearTimeout(timer);
+  timers.delete(ingredientId);
+}
+
+function withoutKey(values: Record<string, string>, key: string): Record<string, string> {
+  const nextValues: Record<string, string> = { ...values };
+  delete nextValues[key];
+  return nextValues;
+}
+
+function ingredientMatchesInput(ingredient: IRecipeIngredient, input: IIngredientEditInput): boolean {
+  return ingredient.name === input.name
+    && ingredient.quantity === input.quantity
+    && ingredient.unit === input.unit
+    && ingredient.note === input.note;
+}
+
+function isScalable(ingredient: IRecipeIngredient): boolean {
+  return ingredient.quantity !== null && ingredient.quantity > 0;
+}
+
+function formatInputNumber(value: number): string {
+  if (!Number.isFinite(value)) return '';
+  return roundInputNumber(value).toString();
+}
+
+function roundInputNumber(value: number): number {
+  return Number(value.toFixed(6));
+}
+
+function isPositiveFinite(value: number): boolean {
+  return Number.isFinite(value) && value > 0;
+}
+
+function isValidServings(value: number): boolean {
+  return isPositiveFinite(value) && value >= MIN_SERVINGS && value <= MAX_SERVINGS;
 }

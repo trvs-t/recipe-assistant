@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-test('recipe detail keeps source traceability, scales portions, and renders the DAG', async ({
+test('recipe detail keeps source traceability, synchronizes amounts, edits inline, and adds variants', async ({
   page,
 }: {
   page: Page;
@@ -16,11 +16,53 @@ test('recipe detail keeps source traceability, scales portions, and renders the 
     'https://www.justonecookbook.com/miso-salmon/',
   );
 
-  const servingsInput = page.getByRole('spinbutton', { name: 'Desired servings' });
+  const servingsInput = page.getByRole('spinbutton', { name: 'Servings' });
+  const salmonAmount = page.getByRole('spinbutton', { name: 'Amount for salmon' });
+  const misoAmount = page.getByRole('spinbutton', { name: 'Amount for white miso' });
+  await expect(servingsInput).toHaveCSS('appearance', 'textfield');
+  await expect(salmonAmount).toHaveCSS('appearance', 'textfield');
   await expect(servingsInput).toHaveValue('2');
+  const servingsBoxBefore = await servingsInput.boundingBox();
+  if (servingsBoxBefore === null) throw new Error('Servings input should be visible before scaling.');
   await page.getByRole('button', { name: 'Increase servings' }).click();
   await expect(servingsInput).toHaveValue('3');
-  await expect(page.getByText('3 fillets, skin on')).toBeVisible();
+  await expect(salmonAmount).toHaveValue('3');
+  await expect(misoAmount).toHaveValue('2.25');
+  const resetServingsButton = page.getByRole('button', { name: 'Reset servings to 2' });
+  await expect(resetServingsButton).toBeVisible();
+  const servingsBoxAfter = await servingsInput.boundingBox();
+  if (servingsBoxAfter === null) throw new Error('Servings input should be visible after scaling.');
+  expect(servingsBoxAfter.x + (servingsBoxAfter.width / 2)).toBeCloseTo(
+    servingsBoxBefore.x + (servingsBoxBefore.width / 2),
+    1,
+  );
+  const resetServingsBox = await resetServingsButton.boundingBox();
+  const decreaseServingsBox = await page.getByRole('button', { name: 'Decrease servings' }).boundingBox();
+  if (resetServingsBox === null || decreaseServingsBox === null) {
+    throw new Error('Reset and decrease serving controls should be visible after scaling.');
+  }
+  expect(decreaseServingsBox.x - (resetServingsBox.x + resetServingsBox.width)).toBeLessThanOrEqual(8);
+
+  await misoAmount.fill('3');
+  await expect(servingsInput).toHaveValue('4');
+  await expect(salmonAmount).toHaveValue('4');
+
+  const salmonName = page.getByRole('textbox', { name: 'Name for salmon' });
+  await salmonName.fill('trout');
+  await salmonName.press('Enter');
+  await expect(page.getByRole('textbox', { name: 'Name for trout' })).toHaveValue('trout');
+  await expect(page.getByRole('status', { name: 'trout saved' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Add variant for trout' }).click();
+  await expect(page.getByLabel('1 variant for trout')).toHaveText('1');
+  const variantName = page.getByRole('textbox', { name: 'Name for trout alternative' });
+  await expect(variantName).toBeFocused();
+  await variantName.fill('firm tofu');
+  await variantName.press('Enter');
+  await page.getByRole('button', { name: 'Edit variants for trout' }).click();
+  await expect(page.getByRole('menuitemradio', { name: 'trout' })).toBeVisible();
+  await expect(page.getByRole('menuitemradio', { name: 'firm tofu' })).toBeVisible();
+  await page.keyboard.press('Escape');
 
   await expect(page.getByRole('heading', { name: 'Recipe as a flow' })).toBeVisible();
   await expect(page.locator('.react-flow__node')).toHaveCount(4);

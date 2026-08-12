@@ -240,7 +240,7 @@ export interface ISupabaseAdapter {
   listImportSubmissions(): Promise<IImportSubmission[]>;
   getRecipe(recipeId: string): Promise<IRecipe | null>;
   updateIngredient(recipeId: string, ingredientId: string, input: IIngredientEditInput): Promise<void>;
-  addIngredientVariation(recipeId: string, input: IIngredientVariationInput): Promise<void>;
+  addIngredientVariation(recipeId: string, input: IIngredientVariationInput): Promise<string>;
   autoLinkRecipe(recipeId: string): Promise<void>;
   submitImport(request: IImportRequestWithIdempotencyKey): Promise<IImportSubmission>;
   getImportSubmission(submissionId: string): Promise<IImportSubmission | null>;
@@ -961,7 +961,7 @@ export function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapt
   async function addIngredientVariation(
     recipeId: string,
     input: IIngredientVariationInput,
-  ): Promise<void> {
+  ): Promise<string> {
     const result = await client
       .from('ingredients')
       .insert({
@@ -980,6 +980,8 @@ export function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapt
     if (result.data === null) {
       throw new SupabaseAdapterError('The ingredient variation was not saved.');
     }
+
+    return result.data.id;
   }
 
   async function autoLinkRecipe(recipeId: string): Promise<void> {
@@ -1211,7 +1213,7 @@ function createDemoAdapter(): ISupabaseAdapter {
     async addIngredientVariation(
       recipeId: string,
       input: IIngredientVariationInput,
-    ): Promise<void> {
+    ): Promise<string> {
       const recipe: IRecipe = getDemoRecipeForMutation(recipes, recipeId);
       const sourceIngredient: IRecipeIngredient | undefined = recipe.ingredients.find(
         (item: IRecipeIngredient): boolean => item.id === input.variationOfId,
@@ -1221,8 +1223,9 @@ function createDemoAdapter(): ISupabaseAdapter {
       }
 
       variationCounter += 1;
+      const variationId: string = `demo-variation-${Date.now()}-${variationCounter}`;
       recipe.ingredients.push({
-        id: `demo-variation-${Date.now()}-${variationCounter}`,
+        id: variationId,
         quantity: input.quantity,
         unit: input.unit,
         name: input.name,
@@ -1230,6 +1233,7 @@ function createDemoAdapter(): ISupabaseAdapter {
         variationOfId: sourceIngredient.id,
       });
       recipe.updatedAt = new Date().toISOString();
+      return variationId;
     },
     async autoLinkRecipe(recipeId: string): Promise<void> {
       const recipe: IRecipe = getDemoRecipeForMutation(recipes, recipeId);

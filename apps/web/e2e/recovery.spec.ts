@@ -44,6 +44,27 @@ async function installImportApiMock(page: Page): Promise<IImportApiState> {
       return;
     }
 
+    if (requestUrl.pathname === '/auth/v1/token') {
+      await route.fulfill({
+        status: 200,
+        headers: responseHeaders,
+        json: {
+          access_token: 'e2e-access-token',
+          refresh_token: 'e2e-refresh-token',
+          expires_in: 3_600,
+          token_type: 'bearer',
+          user: {
+            id: 'e2e-user',
+            aud: 'authenticated',
+            role: 'authenticated',
+            email: 'dev@example.com',
+            created_at: '2026-08-03T00:00:00.000Z',
+          },
+        },
+      });
+      return;
+    }
+
     if (requestUrl.pathname === '/functions/v1/import-recipe-v2') {
       state.submissionCount += 1;
       const jobId: string = state.submissionCount === 1 ? failedJobId : retryJobId;
