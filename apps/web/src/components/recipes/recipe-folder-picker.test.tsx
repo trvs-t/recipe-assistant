@@ -59,4 +59,20 @@ describe('RecipeFolderPicker', (): void => {
       expect(adapterMocks.setRecipeFolders).toHaveBeenCalledWith('recipe-1', ['folder-dinners']);
     });
   });
+
+  it('hides the panel when no folders have been set up', async (): Promise<void> => {
+    adapterMocks.listFolders.mockResolvedValueOnce([]);
+    const queryClient: QueryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RecipeFolderPicker recipe={recipe} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor((): void => {
+      expect(screen.queryByText('Organize recipe')).not.toBeInTheDocument();
+    });
+  });
 });

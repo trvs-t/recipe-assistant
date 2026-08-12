@@ -64,56 +64,55 @@ function RecipeDetailPage(): ReactElement {
         Back to library
       </Link>
 
-      <section>
-        <div className="max-w-3xl">
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <Badge>{recipe.collection}</Badge>
-            <Badge variant={recipe.status === 'parsed' ? 'success' : 'warning'}>{recipe.status}</Badge>
+      <div className="grid items-start gap-x-8 gap-y-10 lg:grid-cols-[minmax(0,1fr)_minmax(21rem,0.65fr)]">
+        <section className="min-w-0 lg:col-start-1 lg:row-start-1">
+          <div className="max-w-3xl">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <Badge>{recipe.collection}</Badge>
+              <Badge variant={recipe.status === 'parsed' ? 'success' : 'warning'}>{recipe.status}</Badge>
+            </div>
+            <h1 className="max-w-3xl font-display text-4xl font-semibold leading-tight tracking-tight sm:text-6xl">{recipe.title}</h1>
+            <p className="mt-5 max-w-2xl text-base leading-7 text-[var(--muted-foreground)] sm:text-lg">{recipe.description}</p>
+            <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3 text-sm text-[var(--muted-foreground)]">
+              <span className="inline-flex items-center gap-2">
+                <Clock3 className="text-[var(--primary)]" size={17} />
+                {formatDuration(totalMinutes)} total
+              </span>
+              <span className="inline-flex items-center gap-2">
+                <UsersRound className="text-[var(--primary)]" size={17} />
+                {recipe.servings} servings
+              </span>
+              {recipe.sourceUrl !== null ? (
+                <a
+                  className="inline-flex items-center gap-1.5 hover:text-[var(--foreground)] hover:underline"
+                  href={recipe.sourceUrl}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  {getSourceLabel(recipe.sourceUrl)}
+                  <ExternalLink aria-hidden="true" size={13} />
+                </a>
+              ) : null}
+            </div>
+            <Link className="mt-7 inline-block" params={{ recipeId: recipe.id }} to="/recipes/$recipeId/cook">
+              <Button size="lg">
+                <ChefHat size={18} />
+                Start cooking
+              </Button>
+            </Link>
           </div>
-          <h1 className="max-w-3xl font-display text-4xl font-semibold leading-tight tracking-tight sm:text-6xl">{recipe.title}</h1>
-          <p className="mt-5 max-w-2xl text-base leading-7 text-[var(--muted-foreground)] sm:text-lg">{recipe.description}</p>
-          <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3 text-sm text-[var(--muted-foreground)]">
-            <span className="inline-flex items-center gap-2">
-              <Clock3 className="text-[var(--primary)]" size={17} />
-              {formatDuration(totalMinutes)} total
-            </span>
-            <span className="inline-flex items-center gap-2">
-              <UsersRound className="text-[var(--primary)]" size={17} />
-              {recipe.servings} servings
-            </span>
-            {recipe.sourceUrl !== null ? (
-              <a
-                className="inline-flex items-center gap-1.5 hover:text-[var(--foreground)] hover:underline"
-                href={recipe.sourceUrl}
-                rel="noreferrer"
-                target="_blank"
-              >
-                {getSourceLabel(recipe.sourceUrl)}
-                <ExternalLink aria-hidden="true" size={13} />
-              </a>
-            ) : null}
-          </div>
-          <Link className="mt-7 inline-block" params={{ recipeId: recipe.id }} to="/recipes/$recipeId/cook">
-            <Button size="lg">
-              <ChefHat size={18} />
-              Start cooking
-            </Button>
-          </Link>
-        </div>
-      </section>
+        </section>
 
-      <section className="max-w-2xl">
-        <IngredientEditor recipe={recipe} />
-      </section>
+        <aside className="min-w-0 space-y-6 lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:max-h-[calc(100vh-7.5rem)] lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:pr-1">
+          <IngredientEditor recipe={recipe} />
+          <RecipeFolderPicker recipe={recipe} />
+        </aside>
 
-      <section className="max-w-2xl">
-        <RecipeFolderPicker recipe={recipe} />
-      </section>
-
-      <section>
-        <IngredientLinkRepair recipe={recipe} />
-        <RecipeFlowDiagram recipe={recipe} />
-      </section>
+        <section className="min-w-0 lg:col-start-1 lg:row-start-2">
+          <IngredientLinkRepair recipe={recipe} />
+          <RecipeFlowDiagram recipe={recipe} />
+        </section>
+      </div>
     </div>
   );
 }

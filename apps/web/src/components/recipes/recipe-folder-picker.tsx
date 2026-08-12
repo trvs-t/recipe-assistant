@@ -13,7 +13,7 @@ export interface IRecipeFolderPickerProps {
   recipe: IRecipe;
 }
 
-export function RecipeFolderPicker({ recipe }: IRecipeFolderPickerProps): ReactElement {
+export function RecipeFolderPicker({ recipe }: IRecipeFolderPickerProps): ReactElement | null {
   const queryClient = useQueryClient();
   const foldersQuery = useFolderListQuery();
   const [selectedFolderIds, setSelectedFolderIds] = useState<string[]>(recipe.folderIds ?? []);
@@ -40,6 +40,10 @@ export function RecipeFolderPicker({ recipe }: IRecipeFolderPickerProps): ReactE
 
   const folders: IFolder[] = foldersQuery.data ?? [];
 
+  if (!foldersQuery.isPending && !foldersQuery.isError && folders.length === 0) {
+    return null;
+  }
+
   return (
     <Card className="shadow-none">
       <CardHeader className="pb-3">
@@ -53,10 +57,6 @@ export function RecipeFolderPicker({ recipe }: IRecipeFolderPickerProps): ReactE
           <p className="text-sm text-[var(--muted-foreground)]">Loading folders…</p>
         ) : foldersQuery.isError ? (
           <p className="text-sm text-[var(--destructive)]">{foldersQuery.error.message}</p>
-        ) : folders.length === 0 ? (
-          <p className="text-sm leading-6 text-[var(--muted-foreground)]">
-            Create a folder from the library, then come back here to organize this recipe.
-          </p>
         ) : (
           <fieldset className="grid gap-3 sm:grid-cols-2" disabled={folderMutation.isPending}>
             <legend className="sr-only">Recipe folders</legend>
