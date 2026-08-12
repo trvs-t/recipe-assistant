@@ -13,6 +13,11 @@ coverage/
 playwright-report/
 test-results/
 
+# Retired local agent/browser experiments
+.omo/
+test-chrome-subprocess.ts
+supabase/functions/_shared/chrome-scraper.ts
+
 # OS files
 .DS_Store
 Thumbs.db
