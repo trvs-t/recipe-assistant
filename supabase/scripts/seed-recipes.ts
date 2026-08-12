@@ -1,9 +1,11 @@
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { dirname, fromFileUrl, join } from "jsr:@std/path";
 
 // Environment variable names
 const ENV_SUPABASE_URL = "SUPABASE_URL";
 const ENV_SERVICE_ROLE_KEY = "SUPABASE_SERVICE_ROLE_KEY";
 const ENV_OPENROUTER_KEY = "OPENROUTER_API_KEY";
+const ENV_OPENROUTER_KEY_LOWER = "openrouter_api_key";
 const ENV_ENVIRONMENT = "ENVIRONMENT";
 
 // Local Supabase defaults (for `supabase start`)
@@ -234,10 +236,18 @@ Instructions:
 ];
 
 function validateEnvVars(): { supabaseUrl: string; serviceRoleKey: string; openRouterKey: string } {
-  if (Deno.env.get(ENV_ENVIRONMENT) === "local") {
-    log("ℹ️ ENVIRONMENT=local detected, loading .env file...", "info");
+  const scriptDir = dirname(fromFileUrl(import.meta.url));
+  const envCandidates: string[] = [
+    join(Deno.cwd(), ".env"),
+    join(scriptDir, ".env"),
+    join(scriptDir, "..", ".env"),
+    join(scriptDir, "..", "..", ".env"),
+  ];
+
+  let envLoaded = false;
+  for (const envPath of envCandidates) {
     try {
-      const envFile = Deno.readTextFileSync(".env");
+      const envFile = Deno.readTextFileSync(envPath);
       for (const line of envFile.split("\n")) {
         const trimmed = line.trim();
         if (!trimmed || trimmed.startsWith("#")) continue;
@@ -249,15 +259,24 @@ function validateEnvVars(): { supabaseUrl: string; serviceRoleKey: string; openR
           Deno.env.set(key, value);
         }
       }
-      log("ℹ️ .env loaded", "info");
-    } catch {
-      log("⚠️ No .env file found, using defaults", "warning");
+      log(`ℹ️ Loaded .env from ${envPath}`, "info");
+      envLoaded = true;
+      break;
+    } catch (error) {
+      if (error instanceof Deno.errors.NotFound) {
+        continue;
+      }
+      log(`⚠️ Failed to read ${envPath}: ${error instanceof Error ? error.message : String(error)}`, "warning");
     }
+  }
+
+  if (!envLoaded) {
+    log("⚠️ No .env file found in expected locations, using process env/defaults", "warning");
   }
 
   const supabaseUrl = Deno.env.get(ENV_SUPABASE_URL) ?? LOCAL_SUPABASE_URL;
   const serviceRoleKey = Deno.env.get(ENV_SERVICE_ROLE_KEY) ?? LOCAL_SERVICE_ROLE_KEY;
-  const openRouterKey = Deno.env.get(ENV_OPENROUTER_KEY);
+  const openRouterKey = Deno.env.get(ENV_OPENROUTER_KEY) ?? Deno.env.get(ENV_OPENROUTER_KEY_LOWER);
 
   if (!openRouterKey) {
     throw new Error(
@@ -405,10 +424,23 @@ async function postToImportRecipe(
     };
   }
 
+  if (response.status === 503) {
+    const responseText = await response.text();
+    const hint =
+      responseText.includes("name resolution failed")
+        ? "import-recipe is unavailable. Start Edge Functions first: `supabase functions serve import-recipe --no-verify-jwt`"
+        : `Service unavailable: ${responseText || "unknown cause"}`;
+    return {
+      success: false,
+      error: hint,
+    };
+  }
+
   // Unknown status code
+  const responseText = await response.text();
   return {
     success: false,
-    error: `Unexpected response: ${response.status}`,
+    error: `Unexpected response: ${response.status}${responseText ? ` - ${responseText}` : ""}`,
   };
 }
 
