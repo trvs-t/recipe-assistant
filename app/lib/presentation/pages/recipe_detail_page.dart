@@ -78,10 +78,7 @@ class _RecipeDetailContent extends ConsumerWidget {
           const SizedBox(height: 24),
 
           // Ingredients section
-          _IngredientsSection(
-            recipeId: recipeId,
-            scaleFactor: ref.watch(scaleFactorProvider),
-          ),
+          _IngredientsSection(recipeId: recipeId),
 
           const SizedBox(height: 24),
 
@@ -279,17 +276,14 @@ class _ScalingSection extends ConsumerWidget {
 
 /// Ingredients section with scaled quantities.
 class _IngredientsSection extends ConsumerWidget {
-  const _IngredientsSection({
-    required this.recipeId,
-    required this.scaleFactor,
-  });
+  const _IngredientsSection({required this.recipeId});
 
   final String recipeId;
-  final double scaleFactor;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final ingredientsAsync = ref.watch(recipeIngredientsProvider(recipeId));
+    final scaleFactor = ref.watch(scaleFactorProvider);
     final theme = Theme.of(context);
 
     return Column(

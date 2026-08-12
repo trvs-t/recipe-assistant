@@ -465,6 +465,61 @@ void main() {
       // After scaling, quantity should change (scale factor > 1.0)
     });
 
+    testWidgets(
+      'slider change updates ingredient quantities',
+      (tester) async {
+        final recipe = Recipe(
+          id: 'test-slider-update',
+          title: 'Slider Update Recipe',
+          servings: 4,
+          status: RecipeStatus.parsed,
+          userId: 'user-1',
+          createdAt: DateTime(2024, 1, 1),
+          updatedAt: DateTime(2024, 1, 1),
+        );
+        recipeRepo.addRecipe(recipe);
+
+        // Add ingredient with known quantity
+        ingredientRepo.addIngredients('test-slider-update', [
+          Ingredient(
+            id: 'ing-slider-1',
+            recipeId: 'test-slider-update',
+            name: 'Sugar',
+            quantity: 1.0,
+            unit: 'cup',
+            originalText: '1 cup sugar',
+            sortOrder: 0,
+          ),
+        ]);
+
+        await tester.pumpWidget(
+          createTestWidget(
+            recipeId: 'test-slider-update',
+            recipeRepo: recipeRepo,
+            ingredientRepo: ingredientRepo,
+            stepRepo: stepRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // At scale 1.0, should show 1 cup
+        expect(find.text('1 cup'), findsOneWidget);
+
+        // Find the slider
+        final slider = find.byType(Slider);
+        expect(slider, findsOneWidget);
+
+        // Drag the slider to increase scale (drag right to increase)
+        // Use drag instead of dragFrom - this drags from start position
+        await tester.drag(slider, const Offset(200, 0));
+        await tester.pumpAndSettle();
+
+        // After drag from 1.0, we get approximately 3.25x (200px on ~280px slider)
+        // 1.0 * 3.25 = 3.25 which formats as "3 ¼ cup"
+        expect(find.text('3 ¼ cup'), findsOneWidget);
+      },
+    );
+
     testWidgets('displays steps list with numbered instructions', (
       tester,
     ) async {
