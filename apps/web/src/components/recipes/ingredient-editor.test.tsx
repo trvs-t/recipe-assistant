@@ -103,8 +103,8 @@ describe('IngredientEditor', (): void => {
       );
     });
     expect(adapterMocks.updateIngredient).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('status', { name: 'duck eggs saved' })).toBeInTheDocument();
-    expect(screen.getByText('Saved. Further changes save automatically.')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'duck eggs saved' })).toHaveClass('saved-indicator');
+    expect(screen.queryByText('Saved. Further changes save automatically.')).not.toBeInTheDocument();
   });
 
   it('directly creates the first variant from the icon button', async (): Promise<void> => {

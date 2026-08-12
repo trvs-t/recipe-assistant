@@ -51,7 +51,11 @@ test('recipe detail keeps source traceability, synchronizes amounts, edits inlin
   await salmonName.fill('trout');
   await salmonName.press('Enter');
   await expect(page.getByRole('textbox', { name: 'Name for trout' })).toHaveValue('trout');
-  await expect(page.getByRole('status', { name: 'trout saved' })).toBeVisible();
+  const savedTag = page.getByRole('status', { name: 'trout saved' });
+  await expect(savedTag).toBeVisible();
+  await expect(savedTag).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(savedTag).toHaveCSS('animation-name', 'saved-indicator-fade-in');
+  await expect(page.getByText('Saved. Further changes save automatically.')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Add variant for trout' }).click();
   await expect(page.getByLabel('1 variant for trout')).toHaveText('1');

@@ -42,6 +42,7 @@ export interface IIngredientEditorProps {
 }
 
 interface IUpdateIngredientVariables {
+  field: TEditableIngredientField;
   ingredientId: string;
   input: IIngredientEditInput;
 }
@@ -59,6 +60,13 @@ interface IPendingVariation {
 interface IIngredientGroup {
   source: IRecipeIngredient;
   options: IRecipeIngredient[];
+}
+
+type TEditableIngredientField = 'name' | 'unit' | 'note';
+
+interface ISavedIndicator {
+  field: TEditableIngredientField;
+  ingredientId: string;
 }
 
 const AUTOSAVE_DELAY_MS: number = 800;
@@ -83,7 +91,7 @@ export function IngredientEditor({ recipe }: IIngredientEditorProps): ReactEleme
     (): Record<string, string> => createActiveOptions(groups),
   );
   const [pendingVariation, setPendingVariation] = useState<IPendingVariation | null>(null);
-  const [savedIngredientId, setSavedIngredientId] = useState<string | null>(null);
+  const [savedIndicator, setSavedIndicator] = useState<ISavedIndicator | null>(null);
   const [scaleFactor, setScaleFactor] = useState<number>(1);
   const [servingsInput, setServingsInput] = useState<string>(() => formatInputNumber(recipe.servings));
   const [activeAmount, setActiveAmount] = useState<{ ingredientId: string; value: string } | null>(null);
@@ -94,7 +102,7 @@ export function IngredientEditor({ recipe }: IIngredientEditorProps): ReactEleme
     mutationFn: (variables: IUpdateIngredientVariables): Promise<void> =>
       supabaseAdapter.updateIngredient(recipe.id, variables.ingredientId, variables.input),
     onSuccess: (_data: void, variables: IUpdateIngredientVariables): void => {
-      setSavedIngredientId(variables.ingredientId);
+      setSavedIndicator({ field: variables.field, ingredientId: variables.ingredientId });
       void queryClient.invalidateQueries({ queryKey: recipeQueryKeys.detail(recipe.id) });
     },
   });
@@ -104,7 +112,7 @@ export function IngredientEditor({ recipe }: IIngredientEditorProps): ReactEleme
       supabaseAdapter.addIngredientVariation(recipe.id, variables.input),
     onSuccess: (ingredientId: string, variables: IAddVariationVariables): void => {
       setPendingVariation({ ingredientId, sourceId: variables.sourceId });
-      setSavedIngredientId(ingredientId);
+      setSavedIndicator(null);
       void queryClient.invalidateQueries({ queryKey: recipeQueryKeys.detail(recipe.id) });
     },
     onError: (): void => {
@@ -149,13 +157,17 @@ export function IngredientEditor({ recipe }: IIngredientEditorProps): ReactEleme
     setScaleFactor(1);
     setServingsInput(formatInputNumber(recipe.servings));
     setActiveAmount(null);
-    setSavedIngredientId(null);
+    setSavedIndicator(null);
   }, [recipe.id, recipe.servings]);
 
   const desiredServings: number = recipe.servings * scaleFactor;
   const mutationError: Error | null = updateMutation.error ?? variationMutation.error ?? null;
 
-  const commitIngredient = (ingredient: IRecipeIngredient, draftOverride?: IIngredientFormValues): void => {
+  const commitIngredient = (
+    ingredient: IRecipeIngredient,
+    field: TEditableIngredientField,
+    draftOverride?: IIngredientFormValues,
+  ): void => {
     clearSaveTimer(ingredient.id, saveTimers.current);
     const draft: IIngredientFormValues = draftOverride ?? drafts[ingredient.id] ?? ingredientToFormValues(ingredient);
     const parsed = parseIngredientFormValues({
@@ -172,19 +184,19 @@ export function IngredientEditor({ recipe }: IIngredientEditorProps): ReactEleme
     if (ingredientMatchesInput(ingredient, parsed.input)) {
       return;
     }
-    setSavedIngredientId(null);
-    updateMutation.mutate({ ingredientId: ingredient.id, input: parsed.input });
+    setSavedIndicator(null);
+    updateMutation.mutate({ field, ingredientId: ingredient.id, input: parsed.input });
   };
 
   const updateDraft = (
     ingredient: IRecipeIngredient,
-    field: 'name' | 'unit' | 'note',
+    field: TEditableIngredientField,
     value: string,
   ): void => {
     const currentDraft: IIngredientFormValues = drafts[ingredient.id] ?? ingredientToFormValues(ingredient);
     const nextDraft: IIngredientFormValues = { ...currentDraft, [field]: value };
-    if (savedIngredientId === ingredient.id) {
-      setSavedIngredientId(null);
+    if (savedIndicator?.ingredientId === ingredient.id) {
+      setSavedIndicator(null);
     }
     setDrafts((currentDrafts: Record<string, IIngredientFormValues>): Record<string, IIngredientFormValues> => ({
       ...currentDrafts,
@@ -194,7 +206,7 @@ export function IngredientEditor({ recipe }: IIngredientEditorProps): ReactEleme
     clearSaveTimer(ingredient.id, saveTimers.current);
     saveTimers.current.set(
       ingredient.id,
-      setTimeout((): void => commitIngredient(ingredient, nextDraft), AUTOSAVE_DELAY_MS),
+      setTimeout((): void => commitIngredient(ingredient, field, nextDraft), AUTOSAVE_DELAY_MS),
     );
   };
 
@@ -268,7 +280,7 @@ export function IngredientEditor({ recipe }: IIngredientEditorProps): ReactEleme
     if (parsed.input === null) {
       return;
     }
-    setSavedIngredientId(null);
+    setSavedIndicator(null);
     variationMutation.mutate({
       sourceId: source.id,
       input: { ...parsed.input, variationOfId: source.id },
@@ -318,11 +330,12 @@ export function IngredientEditor({ recipe }: IIngredientEditorProps): ReactEleme
               : scaledQuantity === null ? '' : formatInputNumber(scaledQuantity);
             const isActiveAnchor: boolean = activeAmount?.ingredientId === ingredient.id;
             const variantCount: number = group.options.length - 1;
-            const isSaved: boolean = savedIngredientId === ingredient.id;
-            const isSaving: boolean = updateMutation.isPending && updateMutation.variables?.ingredientId === ingredient.id;
+            const savedField: TEditableIngredientField | null = savedIndicator?.ingredientId === ingredient.id
+              ? savedIndicator.field
+              : null;
 
             return (
-              <div className={`relative grid grid-cols-[2rem_minmax(0,1fr)_minmax(8.5rem,0.58fr)] gap-x-1.5 px-2.5 py-2 transition-colors sm:px-3 ${isSaved ? 'bg-[var(--success-soft)]' : isActiveAnchor ? 'bg-[var(--primary-soft)]' : isSaving ? 'bg-[var(--muted)]' : ''}`} key={group.source.id}>
+              <div className={`relative grid grid-cols-[2rem_minmax(0,1fr)_minmax(8.5rem,0.58fr)] gap-x-1.5 px-2.5 py-2 transition-colors sm:px-3 ${isActiveAnchor ? 'bg-[var(--primary-soft)]' : ''}`} key={group.source.id}>
                 <div className="relative">
                   {variantCount > 0 ? (
                     <DropdownMenu>
@@ -357,18 +370,21 @@ export function IngredientEditor({ recipe }: IIngredientEditorProps): ReactEleme
                   )}
                 </div>
 
-                <input
-                  aria-label={`Name for ${ingredient.name}`}
-                  className="h-8 min-w-0 bg-transparent px-1.5 text-sm font-medium outline-none"
-                  onBlur={(): void => commitIngredient(ingredient)}
-                  onChange={(event: ChangeEvent<HTMLInputElement>): void => updateDraft(ingredient, 'name', event.target.value)}
-                  onKeyDown={handleEditableKeyDown}
-                  ref={(element: HTMLInputElement | null): void => {
-                    if (element === null) nameInputs.current.delete(ingredient.id);
-                    else nameInputs.current.set(ingredient.id, element);
-                  }}
-                  value={draft.name}
-                />
+                <div className="relative min-w-0">
+                  <input
+                    aria-label={`Name for ${ingredient.name}`}
+                    className="h-8 w-full min-w-0 bg-transparent px-1.5 pr-14 text-sm font-medium outline-none"
+                    onBlur={(): void => commitIngredient(ingredient, 'name')}
+                    onChange={(event: ChangeEvent<HTMLInputElement>): void => updateDraft(ingredient, 'name', event.target.value)}
+                    onKeyDown={handleEditableKeyDown}
+                    ref={(element: HTMLInputElement | null): void => {
+                      if (element === null) nameInputs.current.delete(ingredient.id);
+                      else nameInputs.current.set(ingredient.id, element);
+                    }}
+                    value={draft.name}
+                  />
+                  {savedField === 'name' ? <SavedTag ingredientName={draft.name.trim() || ingredient.name} /> : null}
+                </div>
 
                 <div className="flex min-w-0 items-center justify-end gap-1">
                   <input
@@ -386,32 +402,32 @@ export function IngredientEditor({ recipe }: IIngredientEditorProps): ReactEleme
                     type="number"
                     value={amountValue}
                   />
-                  <input
-                    aria-label={`Unit for ${ingredient.name}`}
-                    className="h-8 w-14 bg-transparent px-1 text-xs text-[var(--muted-foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
-                    onBlur={(): void => commitIngredient(ingredient)}
-                    onChange={(event: ChangeEvent<HTMLInputElement>): void => updateDraft(ingredient, 'unit', event.target.value)}
-                    onKeyDown={handleEditableKeyDown}
-                    placeholder="unit"
-                    value={draft.unit}
-                  />
+                  <div className="relative w-14">
+                    <input
+                      aria-label={`Unit for ${ingredient.name}`}
+                      className="h-8 w-full bg-transparent px-1 text-xs text-[var(--muted-foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
+                      onBlur={(): void => commitIngredient(ingredient, 'unit')}
+                      onChange={(event: ChangeEvent<HTMLInputElement>): void => updateDraft(ingredient, 'unit', event.target.value)}
+                      onKeyDown={handleEditableKeyDown}
+                      placeholder="unit"
+                      value={draft.unit}
+                    />
+                    {savedField === 'unit' ? <SavedTag ingredientName={draft.name.trim() || ingredient.name} placement="below" /> : null}
+                  </div>
                 </div>
 
-                <Input
-                  aria-label={`Notes for ${ingredient.name}`}
-                  className={`col-span-2 col-start-2 h-7 border-0 bg-transparent px-1.5 py-0 text-xs text-[var(--muted-foreground)] shadow-none outline-none focus-visible:border-0 focus-visible:ring-0 ${isSaved ? 'pr-16' : ''}`}
-                  onBlur={(): void => commitIngredient(ingredient)}
-                  onChange={(event: ChangeEvent<HTMLInputElement>): void => updateDraft(ingredient, 'note', event.target.value)}
-                  onKeyDown={handleEditableKeyDown}
-                  placeholder="Add a note"
-                  value={draft.note}
-                />
-                {isSaved ? (
-                  <span aria-label={`${draft.name.trim() || ingredient.name} saved`} className="absolute bottom-2 right-3 inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--success)]" role="status">
-                    <Check size={12} />
-                    Saved
-                  </span>
-                ) : null}
+                <div className="relative col-span-2 col-start-2 min-w-0">
+                  <Input
+                    aria-label={`Notes for ${ingredient.name}`}
+                    className="h-7 w-full border-0 bg-transparent px-1.5 pr-14 py-0 text-xs text-[var(--muted-foreground)] shadow-none outline-none focus-visible:border-0 focus-visible:ring-0"
+                    onBlur={(): void => commitIngredient(ingredient, 'note')}
+                    onChange={(event: ChangeEvent<HTMLInputElement>): void => updateDraft(ingredient, 'note', event.target.value)}
+                    onKeyDown={handleEditableKeyDown}
+                    placeholder="Add a note"
+                    value={draft.note}
+                  />
+                  {savedField === 'note' ? <SavedTag ingredientName={draft.name.trim() || ingredient.name} /> : null}
+                </div>
                 {formErrors[ingredient.id] !== undefined ? (
                   <p className="col-span-2 col-start-2 mt-1 text-sm text-[var(--destructive)]">{formErrors[ingredient.id]}</p>
                 ) : null}
@@ -420,16 +436,22 @@ export function IngredientEditor({ recipe }: IIngredientEditorProps): ReactEleme
           })}
         </div>
 
-        <div aria-live="polite" className="mt-2 min-h-4 text-xs text-[var(--muted-foreground)]">
-          {mutationError !== null ? <span className="text-[var(--destructive)]">{mutationError.message}</span> : null}
-          {mutationError === null && (updateMutation.isPending || variationMutation.isPending) ? 'Saving changes…' : null}
-          {mutationError === null && !updateMutation.isPending && !variationMutation.isPending && savedIngredientId !== null ? (
-            <span className="inline-flex items-center gap-1 font-medium text-[var(--success)]"><Check size={12} /> Saved. Further changes save automatically.</span>
-          ) : null}
-          {mutationError === null && !updateMutation.isPending && !variationMutation.isPending && savedIngredientId === null ? 'Changes save automatically.' : null}
-        </div>
+        {mutationError !== null ? <p aria-live="polite" className="mt-2 text-xs text-[var(--destructive)]">{mutationError.message}</p> : null}
       </CardContent>
     </Card>
+  );
+}
+
+function SavedTag({ ingredientName, placement = 'inline' }: { ingredientName: string; placement?: 'inline' | 'below' }): ReactElement {
+  return (
+    <span
+      aria-label={`${ingredientName} saved`}
+      className={`saved-indicator pointer-events-none absolute right-1 inline-flex items-center gap-1 whitespace-nowrap text-[11px] font-semibold text-[var(--success)] ${placement === 'below' ? 'top-full z-10' : 'top-1/2 -translate-y-1/2'}`}
+      role="status"
+    >
+      <Check size={12} />
+      Saved
+    </span>
   );
 }
 
