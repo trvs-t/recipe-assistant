@@ -2,6 +2,8 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { z } from 'https://deno.land/x/zod@v3.22.4/mod.ts'
 
+import { parseIngredient } from '../_shared/ingredient-parser.ts'
+
 declare const EdgeRuntime: {
   waitUntil: (promise: Promise<unknown>) => void
 } | undefined
@@ -587,10 +589,13 @@ async function processRecipeAsync(recipeId: string, url: string, sourceText?: st
 
     console.log(`[BACKGROUND] Step 5: Inserting ${parsed.ingredients.length} ingredients`)
     for (let i = 0; i < parsed.ingredients.length; i++) {
+      const ing = parseIngredient(parsed.ingredients[i])
       await supabase.from('ingredients').insert({
         recipe_id: recipeId,
-        original_text: parsed.ingredients[i],
-        name: parsed.ingredients[i],
+        original_text: ing.original_text,
+        quantity: ing.quantity,
+        unit: ing.unit,
+        name: ing.name,
         sort_order: i,
       })
     }
