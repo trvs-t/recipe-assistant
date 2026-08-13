@@ -13,6 +13,7 @@ import {
   createEdgeRuntimeBackgroundTaskRunner,
 } from "../index.ts";
 import {
+  OPENROUTER_MODEL,
   OpenRouterNormalizer,
   type OpenRouterTransport,
   prepareRecipeSourceContent,
@@ -1425,7 +1426,8 @@ Deno.test("plain-text imports do not fall back to a URL-only enqueue RPC", async
   assertDeepEquals(calls, ["enqueue_recipe_import_with_text"]);
 });
 
-Deno.test("default handler requires an explicit OpenRouter model", () => {
+Deno.test("default handler uses the source-pinned OpenRouter model", () => {
+  assertEquals(OPENROUTER_MODEL, "deepseek/deepseek-v4-flash");
   const values: Map<string, string> = new Map<string, string>([
     ["IMPORT_WORKER_SECRET", worker_secret],
     ["OPENROUTER_API_KEY", "test-key"],
@@ -1436,16 +1438,8 @@ Deno.test("default handler requires an explicit OpenRouter model", () => {
     },
   };
 
-  try {
-    createDefaultHandler({ env, gateway: new FakeGateway() });
-    throw new Error("Expected OPENROUTER_MODEL configuration to be required");
-  } catch (error) {
-    assertEquals(error instanceof Error, true);
-    assertEquals(
-      error instanceof Error && error.message.includes("OPENROUTER_MODEL"),
-      true,
-    );
-  }
+  const handler = createDefaultHandler({ env, gateway: new FakeGateway() });
+  assertEquals(typeof handler, "function");
 });
 
 function isRecord(value: unknown): value is Record<string, unknown> {

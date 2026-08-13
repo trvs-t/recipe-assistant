@@ -7,8 +7,8 @@ import {
 } from "./handler.ts";
 import {
   createOpenRouterNormalizerFromEnv,
-  type OpenRouterNormalizer,
   type EnvironmentReader,
+  type OpenRouterNormalizer,
 } from "./openrouter-normalizer.ts";
 import { createSourceFetcher } from "./source-fetcher.ts";
 import {
@@ -56,9 +56,9 @@ export interface IEdgeRuntimeBackgroundTasks {
 
 /**
  * Creates the deployable handler. Production requires Supabase service-role
- * credentials, IMPORT_WORKER_SECRET, OPENROUTER_API_KEY, and OPENROUTER_MODEL.
- * OPENROUTER_MODEL is intentionally mandatory. The evaluated low-cost model is
- * deepseek/deepseek-v4-flash; deployments can explicitly pin another model.
+ * credentials, IMPORT_WORKER_SECRET, and OPENROUTER_API_KEY. The evaluated
+ * production model is pinned in source so model changes are reviewed, tested,
+ * and deployed with the function code.
  */
 export function createDefaultHandler(
   options: DefaultHandlerOptions = {},

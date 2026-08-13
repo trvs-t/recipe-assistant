@@ -10,8 +10,7 @@ import {
   type RecipeFlow,
 } from "./types.ts";
 
-export const RECOMMENDED_OPENROUTER_MODEL: string =
-  "deepseek/deepseek-v4-flash";
+export const OPENROUTER_MODEL: string = "deepseek/deepseek-v4-flash";
 export const OPENROUTER_ENDPOINT: string =
   "https://openrouter.ai/api/v1/chat/completions";
 export const OPENROUTER_TIMEOUT_MS: number = 30_000;
@@ -190,7 +189,9 @@ export class OpenRouterNormalizer
           role: "user",
           content: [
             `Requested source URL: ${input.source_url ?? "Pasted recipe text"}`,
-            `Resolved source URL: ${input.resolved_url ?? "Pasted recipe text"}`,
+            `Resolved source URL: ${
+              input.resolved_url ?? "Pasted recipe text"
+            }`,
             `Normalization attempt: ${inline_attempt} of ${this.max_inline_attempts}`,
             "Recipe source content:",
             prepareRecipeSourceContent(input.content),
@@ -323,7 +324,8 @@ export class OpenRouterNormalizer
       );
       throw new PipelineError({
         code: "AI_NORMALIZATION_FAILED",
-        message: `OpenRouter ingredient linking returned HTTP ${response.status}`,
+        message:
+          `OpenRouter ingredient linking returned HTTP ${response.status}`,
         stage: "normalize",
         retryable: isRetryableStatus(response.status),
         details: {
@@ -352,14 +354,13 @@ export function createOpenRouterNormalizerFromEnv(
   env: EnvironmentReader = Deno.env,
 ): OpenRouterNormalizer {
   const api_key: string = requiredEnvironment(env, "OPENROUTER_API_KEY");
-  const model: string = requiredEnvironment(env, "OPENROUTER_MODEL");
   const timeoutText: string | undefined = env.get("OPENROUTER_TIMEOUT_MS");
   const timeout_ms: number | undefined = parseOptionalPositiveInteger(
     timeoutText,
   );
   return new OpenRouterNormalizer({
     api_key,
-    model,
+    model: OPENROUTER_MODEL,
     timeout_ms,
     site_url: env.get("OPENROUTER_SITE_URL"),
     site_name: env.get("OPENROUTER_SITE_NAME"),

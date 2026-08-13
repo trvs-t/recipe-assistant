@@ -2,8 +2,8 @@ import { normalizeRecipeDraft } from "../ai-normalizer.ts";
 import { mapToCanonicalRecipe } from "../canonical-recipe.ts";
 import { extractRecipeFromJsonLd } from "../json-ld-extractor.ts";
 import {
+  OPENROUTER_MODEL,
   OpenRouterNormalizer,
-  RECOMMENDED_OPENROUTER_MODEL,
 } from "../openrouter-normalizer.ts";
 import { fetchSource } from "../source-fetcher.ts";
 import { type NormalizedRecipe, type SourceDocument } from "../types.ts";
@@ -61,7 +61,7 @@ Deno.test({
     const normalizer: OpenRouterNormalizer = new OpenRouterNormalizer({
       api_key: apiKey,
       model: readEnvironment("OPENROUTER_MODEL")?.trim() ||
-        RECOMMENDED_OPENROUTER_MODEL,
+        OPENROUTER_MODEL,
       timeout_ms: 30_000,
     });
     let successes: number = 0;
