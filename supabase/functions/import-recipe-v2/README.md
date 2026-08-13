@@ -17,6 +17,12 @@ linking pass for unresolved references. Only known ingredient IDs and links at
 or above the confidence threshold are persisted; otherwise the linear flow
 fallback remains in place.
 
+Recipe JSON-LD remains the deterministic source for recipe structure. Its raw
+`recipeIngredient` strings receive one focused, non-blocking normalization pass
+that separates names, notes, ranges, and source-provided equivalent measures.
+The pass never calculates conversions. On failure, the worker persists the
+deterministically extracted ingredients instead of failing the import.
+
 When Supabase `EdgeRuntime.waitUntil` is available, a newly queued submission
 also schedules one best-effort worker claim before returning `202`. This is a
 latency shortcut only: failure to start or finish that background task leaves

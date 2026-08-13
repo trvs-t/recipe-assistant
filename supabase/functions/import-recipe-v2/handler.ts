@@ -9,8 +9,9 @@ import {
 } from "./supabase-adapter.ts";
 import {
   type AiNormalizationAdapter,
-  type IngredientLinkingAdapter,
   type ImportStage,
+  type IngredientLinkingAdapter,
+  type IngredientNormalizationAdapter,
   type SourceFetcher,
 } from "./types.ts";
 
@@ -35,6 +36,7 @@ export interface ImportHandlerDependencies {
   readonly source_fetcher: SourceFetcher;
   readonly ai_normalizer: AiNormalizationAdapter;
   readonly ingredient_linker?: IngredientLinkingAdapter;
+  readonly ingredient_normalizer?: IngredientNormalizationAdapter;
   readonly worker_secret: string;
   readonly visibility_timeout_seconds?: number;
   readonly retry_delay_seconds?:
@@ -168,6 +170,7 @@ async function processNextQueuedImport(
     source_fetcher: dependencies.source_fetcher,
     ai_normalizer: dependencies.ai_normalizer,
     ingredient_linker: dependencies.ingredient_linker,
+    ingredient_normalizer: dependencies.ingredient_normalizer,
     retry_delay_seconds: dependencies.retry_delay_seconds,
   });
   return true;
@@ -226,12 +229,14 @@ async function parseSubmissionRequest(
     throw requestError("idempotencyKey is required");
   }
 
-  const source_url: string | null = typeof sourceValue === "string" && sourceValue.trim().length > 0
-    ? sourceValue.trim()
-    : null;
-  const source_text: string | null = typeof textValue === "string" && textValue.trim().length > 0
-    ? textValue.trim()
-    : null;
+  const source_url: string | null =
+    typeof sourceValue === "string" && sourceValue.trim().length > 0
+      ? sourceValue.trim()
+      : null;
+  const source_text: string | null =
+    typeof textValue === "string" && textValue.trim().length > 0
+      ? textValue.trim()
+      : null;
   const idempotency_key: string = idempotencyValue.trim();
   validateSubmissionShape(source_url, source_text, idempotency_key);
   return { source_url, source_text, idempotency_key };
@@ -283,7 +288,9 @@ function validateSubmissionShape(
         retryable: false,
       });
     }
-    if (parsed.port.length > 0 && parsed.port !== "80" && parsed.port !== "443") {
+    if (
+      parsed.port.length > 0 && parsed.port !== "80" && parsed.port !== "443"
+    ) {
       throw new PipelineError({
         code: "URL_PORT_NOT_ALLOWED",
         message: "sourceUrl uses a port that is not allowed",

@@ -1,13 +1,19 @@
 import { PipelineError } from "./errors.ts";
 import { parseIngredientLinkOutput } from "./ingredient-linker.ts";
-import { normalizeRecipeDraft } from "./ai-normalizer.ts";
+import {
+  normalizeIngredientDrafts,
+  normalizeRecipeDraft,
+} from "./ai-normalizer.ts";
 import {
   type AiNormalizationAdapter,
   type AiNormalizationInput,
   type IngredientLinkingAdapter,
   type IngredientLinkingInput,
+  type IngredientNormalizationAdapter,
+  type IngredientNormalizationInput,
   type NormalizedRecipeDraft,
   type RecipeFlow,
+  type RecipeIngredient,
 } from "./types.ts";
 
 export const OPENROUTER_MODEL: string = "deepseek/deepseek-v4-flash";
@@ -40,7 +46,10 @@ export interface OpenRouterNormalizerOptions {
 }
 
 export class OpenRouterNormalizer
-  implements AiNormalizationAdapter, IngredientLinkingAdapter {
+  implements
+    AiNormalizationAdapter,
+    IngredientLinkingAdapter,
+    IngredientNormalizationAdapter {
   private readonly api_key: string;
   private readonly model: string;
   private readonly endpoint: string;
@@ -129,6 +138,66 @@ export class OpenRouterNormalizer
     return parseIngredientLinkOutput(linkOutput, input);
   }
 
+  async normalizeIngredients(
+    input: IngredientNormalizationInput,
+  ): Promise<readonly RecipeIngredient[]> {
+    const response: Response = await this.requestIngredientNormalization(input);
+    const responseText: string = await readResponseText(
+      response,
+      this.timeout_ms,
+    );
+    const responseBody: unknown = parseResponseJson(responseText);
+    const content: string = extractMessageContent(responseBody);
+    let output: unknown;
+    try {
+      output = JSON.parse(extractJsonObjectText(content));
+    } catch {
+      throw invalidAiResponse(
+        "OpenRouter returned ingredient normalization that is not strict JSON",
+      );
+    }
+    const ingredients: readonly RecipeIngredient[] = normalizeIngredientDrafts(
+      output,
+    );
+    if (
+      ingredients.length !== input.ingredients.length ||
+      ingredients.some((ingredient: RecipeIngredient, index: number): boolean =>
+        ingredient.original !== input.ingredients[index]
+      )
+    ) {
+      throw invalidAiResponse(
+        "OpenRouter changed or omitted source ingredients",
+      );
+    }
+    return ingredients.map(
+      (ingredient: RecipeIngredient, index: number): RecipeIngredient => {
+        const suppliedMeasurements = ingredient.measurements ?? [];
+        const requestedPrimaryIndex: number = suppliedMeasurements.findIndex(
+          (measurement): boolean => measurement.is_primary,
+        );
+        const primaryIndex: number = requestedPrimaryIndex < 0
+          ? 0
+          : requestedPrimaryIndex;
+        const measurements = suppliedMeasurements.map((
+          measurement,
+          measurementIndex,
+        ) => ({
+          ...measurement,
+          is_primary: measurementIndex === primaryIndex,
+        }));
+        const primary = measurements[primaryIndex];
+        return {
+          ...ingredient,
+          id: `ingredient:${index}`,
+          quantity: primary?.quantity_min ?? ingredient.quantity,
+          unit: primary?.unit ?? ingredient.unit,
+          measurements,
+          sort_order: index,
+        };
+      },
+    );
+  }
+
   private async normalizeOnce(
     input: AiNormalizationInput,
     inline_attempt: number,
@@ -183,7 +252,7 @@ export class OpenRouterNormalizer
         {
           role: "system",
           content:
-            "Extract one recipe from the supplied source and return only JSON. Required top-level keys: title, description, ingredients, steps, servings, prepTimeMinutes, cookTimeMinutes, totalTimeMinutes, images, cuisineType, dietaryTags, parseConfidence, status. Each ingredient requires id, originalText, quantity, unit, name, notes, sortOrder. Each step requires id, instruction, timerDurationMinutes, sortOrder. Do not invent ingredients or steps. Every explicit ingredient quantity must be greater than zero; use null only when the source truly omits a quantity. Use null when another scalar is unavailable.",
+            "Extract one recipe from the supplied source and return only JSON. Required top-level keys: title, description, ingredients, steps, servings, prepTimeMinutes, cookTimeMinutes, totalTimeMinutes, images, cuisineType, dietaryTags, parseConfidence, status. Each ingredient requires id, originalText, quantity, unit, name, notes, measurements, sortOrder. Preserve every explicitly supplied equivalent measurement and range; never calculate conversions. quantity and unit mirror the first primary measurement. Each step requires id, instruction, timerDurationMinutes, sortOrder. Do not invent ingredients or steps. Every explicit ingredient quantity must be greater than zero; use null only when the source truly omits a quantity. Use null when another scalar is unavailable.",
         },
         {
           role: "user",
@@ -348,6 +417,104 @@ export class OpenRouterNormalizer
       });
     }
   }
+
+  private async requestIngredientNormalization(
+    input: IngredientNormalizationInput,
+  ): Promise<Response> {
+    const controller: AbortController = new AbortController();
+    const body: Record<string, unknown> = {
+      model: this.model,
+      max_tokens: 2_400,
+      temperature: 0,
+      reasoning: { effort: "none" },
+      provider: { require_parameters: true },
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "ingredient_normalization",
+          strict: true,
+          schema: INGREDIENT_NORMALIZATION_SCHEMA,
+        },
+      },
+      messages: [
+        {
+          role: "system",
+          content: [
+            "Normalize recipe ingredient strings and return only JSON.",
+            "Preserve originalText exactly and preserve input order.",
+            "Separate the ingredient name, preparation notes, and every explicitly supplied measurement.",
+            "Equivalent measures such as 228 g (1 cup or 2 sticks) are separate measurements of one ingredient.",
+            "Represent ranges with quantityMin and quantityMax; do not average them.",
+            "Never calculate conversions or invent quantities, units, ingredients, or notes.",
+            "Use the first source measurement as primary. quantity and unit must mirror its quantityMin and unit.",
+          ].join(" "),
+        },
+        {
+          role: "user",
+          content: JSON.stringify({ ingredients: input.ingredients }),
+        },
+      ],
+    };
+    return this.requestJson(body, controller, "ingredient normalization");
+  }
+
+  private async requestJson(
+    body: Readonly<Record<string, unknown>>,
+    controller: AbortController,
+    operation: string,
+  ): Promise<Response> {
+    const headers: Record<string, string> = {
+      authorization: `Bearer ${this.api_key}`,
+      "content-type": "application/json",
+    };
+    if (this.site_url !== undefined && this.site_url.trim().length > 0) {
+      headers["http-referer"] = this.site_url;
+    }
+    if (this.site_name !== undefined && this.site_name.trim().length > 0) {
+      headers["x-title"] = this.site_name;
+    }
+    try {
+      const response: Response = await fetchWithTimeout(
+        this.transport,
+        this.endpoint,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        },
+        controller,
+        this.timeout_ms,
+      );
+      if (response.ok) {
+        return response;
+      }
+      const errorText: string = await readResponseText(
+        response,
+        this.timeout_ms,
+      );
+      throw new PipelineError({
+        code: "AI_NORMALIZATION_FAILED",
+        message: `OpenRouter ${operation} returned HTTP ${response.status}`,
+        stage: "normalize",
+        retryable: isRetryableStatus(response.status),
+        details: { status: response.status, reason: errorText.slice(0, 300) },
+      });
+    } catch (error) {
+      if (error instanceof PipelineError) {
+        throw error;
+      }
+      throw new PipelineError({
+        code: "AI_NORMALIZATION_FAILED",
+        message: `OpenRouter could not be reached for ${operation}`,
+        stage: "normalize",
+        retryable: true,
+        details: {
+          reason: error instanceof Error ? error.message : "AI request failed",
+        },
+      });
+    }
+  }
 }
 
 export function createOpenRouterNormalizerFromEnv(
@@ -405,6 +572,7 @@ export const RECIPE_NORMALIZATION_SCHEMA: Readonly<Record<string, unknown>> = {
           "unit",
           "name",
           "notes",
+          "measurements",
           "sortOrder",
         ],
         properties: {
@@ -414,6 +582,7 @@ export const RECIPE_NORMALIZATION_SCHEMA: Readonly<Record<string, unknown>> = {
           unit: { type: ["string", "null"] },
           name: { type: "string", minLength: 1 },
           notes: { type: ["string", "null"] },
+          measurements: ingredientMeasurementsSchema(),
           sortOrder: { type: "integer", minimum: 0 },
         },
       },
@@ -460,6 +629,61 @@ export const RECIPE_NORMALIZATION_SCHEMA: Readonly<Record<string, unknown>> = {
     },
   },
 };
+
+export const INGREDIENT_NORMALIZATION_SCHEMA: Readonly<
+  Record<string, unknown>
+> = {
+  type: "object",
+  additionalProperties: false,
+  required: ["ingredients"],
+  properties: {
+    ingredients: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "id",
+          "originalText",
+          "quantity",
+          "unit",
+          "name",
+          "notes",
+          "measurements",
+          "sortOrder",
+        ],
+        properties: {
+          id: { type: "string", minLength: 1 },
+          originalText: { type: "string", minLength: 1 },
+          quantity: { type: ["number", "null"], exclusiveMinimum: 0 },
+          unit: { type: ["string", "null"] },
+          name: { type: "string", minLength: 1 },
+          notes: { type: ["string", "null"] },
+          measurements: ingredientMeasurementsSchema(),
+          sortOrder: { type: "integer", minimum: 0 },
+        },
+      },
+    },
+  },
+};
+
+function ingredientMeasurementsSchema(): Readonly<Record<string, unknown>> {
+  return {
+    type: "array",
+    items: {
+      type: "object",
+      additionalProperties: false,
+      required: ["quantityMin", "quantityMax", "unit", "isPrimary"],
+      properties: {
+        quantityMin: { type: "number", exclusiveMinimum: 0 },
+        quantityMax: { type: "number", exclusiveMinimum: 0 },
+        unit: { type: ["string", "null"] },
+        isPrimary: { type: "boolean" },
+      },
+    },
+  };
+}
 
 export const INGREDIENT_LINKING_SCHEMA: Readonly<Record<string, unknown>> = {
   type: "object",

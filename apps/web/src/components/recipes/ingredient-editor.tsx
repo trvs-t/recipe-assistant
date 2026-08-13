@@ -32,7 +32,7 @@ import {
   variationToFormValues,
   type IIngredientFormValues,
 } from '@/features/recipes/ingredient-editing';
-import { scaleQuantityByFactor } from '@/features/recipes/scaling';
+import { formatMeasurement, scaleQuantityByFactor } from '@/features/recipes/scaling';
 import { supabaseAdapter, type IIngredientVariationInput } from '@/lib/supabase';
 
 import type { IIngredientEditInput, IRecipe, IRecipeIngredient } from '@/features/recipes/contracts';
@@ -433,6 +433,14 @@ export function IngredientEditor({ onScaleFactorChange, recipe }: IIngredientEdi
                   />
                   {savedField === 'note' ? <SavedTag ingredientName={draft.name.trim() || ingredient.name} /> : null}
                 </div>
+                {(ingredient.measurements ?? []).some((measurement): boolean => !measurement.isPrimary) ? (
+                  <p className="col-span-2 col-start-2 px-1.5 text-xs text-[var(--muted-foreground)]">
+                    Also {(ingredient.measurements ?? [])
+                      .filter((measurement): boolean => !measurement.isPrimary)
+                      .map((measurement): string => formatMeasurement(measurement, scaleFactor))
+                      .join(' / ')}
+                  </p>
+                ) : null}
                 {formErrors[ingredient.id] !== undefined ? (
                   <p className="col-span-2 col-start-2 mt-1 text-sm text-[var(--destructive)]">{formErrors[ingredient.id]}</p>
                 ) : null}

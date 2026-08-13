@@ -22,11 +22,12 @@ import {
 } from "./ingredient-linker.ts";
 import {
   type AiNormalizationAdapter,
+  type ImportStage,
   type IngredientLinkingAdapter,
   type IngredientLinkingIngredient,
   type IngredientLinkingInput,
   type IngredientLinkingStep,
-  type ImportStage,
+  type IngredientNormalizationAdapter,
   type NormalizedRecipe,
   type RecipeFlow,
   type SourceDocument,
@@ -39,6 +40,7 @@ export interface ImportWorkerDependencies {
   readonly source_fetcher: SourceFetcher;
   readonly ai_normalizer: AiNormalizationAdapter;
   readonly ingredient_linker?: IngredientLinkingAdapter;
+  readonly ingredient_normalizer?: IngredientNormalizationAdapter;
   readonly retry_delay_seconds?: (claim: ClaimedRecipeImport) => number;
 }
 
@@ -59,9 +61,10 @@ export async function processClaimedImport(
   let stage: ImportStage = "fetch";
   try {
     await markStage(dependencies.gateway, claim, "fetch");
-    const source: SourceDocument = claim.source_text === undefined || claim.source_text === null
-      ? await fetchUrlSource(claim, dependencies.source_fetcher)
-      : createTextSource(claim);
+    const source: SourceDocument =
+      claim.source_text === undefined || claim.source_text === null
+        ? await fetchUrlSource(claim, dependencies.source_fetcher)
+        : createTextSource(claim);
 
     stage = "extract";
     await markStage(
@@ -70,15 +73,22 @@ export async function processClaimedImport(
       "extract",
       1 + source.redirect_count,
     );
-    const deterministicRecipe: NormalizedRecipe | null = claim.source_text === undefined || claim.source_text === null
-      ? extractRecipeFromJsonLd(source.body, claim.source_url ?? source.source_url)
-      : null;
+    const deterministicRecipe: NormalizedRecipe | null =
+      claim.source_text === undefined || claim.source_text === null
+        ? extractRecipeFromJsonLd(
+          source.body,
+          claim.source_url ?? source.source_url,
+        )
+        : null;
 
     stage = "normalize";
     await markStage(dependencies.gateway, claim, "normalize");
     let recipe: NormalizedRecipe;
     if (deterministicRecipe !== null) {
-      recipe = deterministicRecipe;
+      recipe = await normalizeExtractedIngredients(
+        deterministicRecipe,
+        dependencies.ingredient_normalizer,
+      );
     } else {
       const draft = await dependencies.ai_normalizer.normalize({
         source_url: claim.source_url,
@@ -149,6 +159,31 @@ export async function processClaimedImport(
   }
 }
 
+async function normalizeExtractedIngredients(
+  recipe: NormalizedRecipe,
+  normalizer: IngredientNormalizationAdapter | undefined,
+): Promise<NormalizedRecipe> {
+  if (normalizer === undefined) {
+    return recipe;
+  }
+  try {
+    const ingredients = await normalizer.normalizeIngredients({
+      ingredients: recipe.ingredients.map((ingredient): string =>
+        ingredient.original
+      ),
+    });
+    return { ...recipe, ingredients };
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: "ingredient_normalization_fallback",
+      message: error instanceof Error
+        ? error.message
+        : "Ingredient normalization failed",
+    }));
+    return recipe;
+  }
+}
+
 async function enrichIngredientLinks(
   payload: CanonicalRecipePayload,
   ingredient_linker: IngredientLinkingAdapter | undefined,
@@ -163,13 +198,16 @@ async function enrichIngredientLinks(
       instruction: step.instruction,
     }),
   );
-  const ingredients: readonly IngredientLinkingIngredient[] = payload.ingredients.map(
-    (ingredient: CanonicalIngredientPayload): IngredientLinkingIngredient => ({
-      id: ingredient.id,
-      originalText: ingredient.originalText,
-      name: ingredient.name,
-    }),
-  );
+  const ingredients: readonly IngredientLinkingIngredient[] = payload
+    .ingredients.map(
+      (
+        ingredient: CanonicalIngredientPayload,
+      ): IngredientLinkingIngredient => ({
+        id: ingredient.id,
+        originalText: ingredient.originalText,
+        name: ingredient.name,
+      }),
+    );
   const baseFlow: RecipeFlow | null = payload.flow.derivation === "enriched"
     ? payload.flow
     : null;
@@ -178,8 +216,13 @@ async function enrichIngredientLinks(
     createDeterministicIngredientFlow({ ingredients, steps }),
     steps,
   );
-  if (hasLinksForEveryStep(deterministicFlow, payload.steps) || ingredient_linker === undefined) {
-    return deterministicFlow === null ? payload : { ...payload, flow: deterministicFlow };
+  if (
+    hasLinksForEveryStep(deterministicFlow, payload.steps) ||
+    ingredient_linker === undefined
+  ) {
+    return deterministicFlow === null
+      ? payload
+      : { ...payload, flow: deterministicFlow };
   }
 
   try {
@@ -196,9 +239,13 @@ async function enrichIngredientLinks(
   } catch (error) {
     console.warn(JSON.stringify({
       event: "ingredient_linking_fallback",
-      message: error instanceof Error ? error.message : "Ingredient linking failed",
+      message: error instanceof Error
+        ? error.message
+        : "Ingredient linking failed",
     }));
-    return deterministicFlow === null ? payload : { ...payload, flow: deterministicFlow };
+    return deterministicFlow === null
+      ? payload
+      : { ...payload, flow: deterministicFlow };
   }
 }
 
@@ -209,11 +256,16 @@ function hasLinksForEveryStep(
   if (flow === null || flow.derivation !== "enriched") {
     return false;
   }
-  const nodesByStepId: Map<string, readonly string[]> = new Map<string, readonly string[]>(
-    flow.nodes.map((node): [string, readonly string[]] => [node.stepId, node.ingredientIds]),
+  const nodesByStepId: Map<string, readonly string[]> = new Map<
+    string,
+    readonly string[]
+  >(
+    flow.nodes.map((
+      node,
+    ): [string, readonly string[]] => [node.stepId, node.ingredientIds]),
   );
   return steps.every((step: CanonicalStepPayload): boolean =>
-    (nodesByStepId.get(step.id)?.length ?? 0) > 0,
+    (nodesByStepId.get(step.id)?.length ?? 0) > 0
   );
 }
 

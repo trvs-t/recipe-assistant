@@ -2,6 +2,7 @@ import { PipelineError } from "./errors.ts";
 import {
   type AiNormalizationAdapter,
   type AiNormalizationInput,
+  type IngredientMeasurement,
   type NormalizedRecipe,
   type NormalizedRecipeDraft,
   type NormalizedRecipeStep,
@@ -103,6 +104,23 @@ export function normalizeRecipeDraft(
   };
 }
 
+export function normalizeIngredientDrafts(
+  value: unknown,
+): readonly RecipeIngredient[] {
+  if (!isRecord(value)) {
+    throw invalidOutput(
+      "AI ingredient normalization returned a non-object result",
+    );
+  }
+  const ingredients: readonly RecipeIngredient[] | null = ingredientsArray(
+    value["ingredients"],
+  );
+  if (ingredients === null || ingredients.length === 0) {
+    throw invalidOutput("AI ingredient normalization returned no ingredients");
+  }
+  return ingredients;
+}
+
 export function createUnavailableAiNormalizer(): AiNormalizationAdapter {
   return {
     normalize(_input: AiNormalizationInput): Promise<NormalizedRecipeDraft> {
@@ -154,6 +172,8 @@ function ingredientsArray(value: unknown): readonly RecipeIngredient[] | null {
     );
     const unit: string | null = strictNullableString(item["unit"], "unit");
     const notes: string | null = strictNullableString(item["notes"], "notes");
+    const measurements: readonly IngredientMeasurement[] | undefined =
+      measurementsArray(item["measurements"]);
     const id: string | undefined = optionalNonEmptyString(item["id"], "id");
     const sort_order: number | undefined = optionalNonNegativeInteger(
       item["sortOrder"] ?? item["sort_order"],
@@ -165,11 +185,62 @@ function ingredientsArray(value: unknown): readonly RecipeIngredient[] | null {
       unit,
       name,
       notes,
+      ...(measurements === undefined ? {} : { measurements }),
       ...(sort_order === undefined ? {} : { sort_order }),
     });
   }
 
   return ingredients;
+}
+
+function measurementsArray(
+  value: unknown,
+): readonly IngredientMeasurement[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw invalidOutput(
+      "AI normalization returned invalid ingredient measurements",
+    );
+  }
+  return value.map((item: unknown): IngredientMeasurement => {
+    if (!isRecord(item)) {
+      throw invalidOutput(
+        "AI normalization returned an invalid ingredient measurement",
+      );
+    }
+    const quantity_min: number | null = strictNullableNumber(
+      item["quantityMin"] ?? item["quantity_min"],
+      Number.MIN_VALUE,
+      "measurement quantityMin",
+    );
+    const quantity_max: number | null = strictNullableNumber(
+      item["quantityMax"] ?? item["quantity_max"],
+      Number.MIN_VALUE,
+      "measurement quantityMax",
+    );
+    if (
+      quantity_min === null || quantity_max === null ||
+      quantity_max < quantity_min
+    ) {
+      throw invalidOutput(
+        "AI normalization returned an invalid ingredient measurement range",
+      );
+    }
+    const isPrimary: unknown = item["isPrimary"] ?? item["is_primary"];
+    if (typeof isPrimary !== "boolean") {
+      throw invalidOutput(
+        "AI normalization returned an invalid primary measurement flag",
+      );
+    }
+    return {
+      quantity_min,
+      quantity_max,
+      unit: strictNullableString(item["unit"], "measurement unit"),
+      is_primary: isPrimary,
+    };
+  });
 }
 
 interface StepArrayResult {
@@ -316,7 +387,14 @@ function strictNullableString(
   value: unknown,
   field_name: string,
 ): string | null {
-  return strictOptionalString(value, field_name);
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw invalidOutput(`AI normalization returned an invalid ${field_name}`);
+  }
+  const trimmed: string = value.trim();
+  return trimmed.length === 0 ? null : trimmed;
 }
 
 function strictNullableNumber(

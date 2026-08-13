@@ -254,6 +254,8 @@ const RECIPE_UNITS: ReadonlySet<string> = new Set<string>([
   "pound",
   "pounds",
   "g",
+  "gm",
+  "gms",
   "gram",
   "grams",
   "kg",

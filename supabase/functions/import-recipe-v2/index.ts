@@ -18,6 +18,7 @@ import {
 import {
   type AiNormalizationAdapter,
   type IngredientLinkingAdapter,
+  type IngredientNormalizationAdapter,
   type SourceFetcher,
 } from "./types.ts";
 
@@ -45,6 +46,7 @@ export interface DefaultHandlerOptions {
   readonly source_fetcher?: SourceFetcher;
   readonly ai_normalizer?: AiNormalizationAdapter;
   readonly ingredient_linker?: IngredientLinkingAdapter;
+  readonly ingredient_normalizer?: IngredientNormalizationAdapter;
   readonly worker_secret?: string;
   readonly visibility_timeout_seconds?: number;
   readonly background_task_runner?: IImportBackgroundTaskRunner;
@@ -88,6 +90,8 @@ export function createDefaultHandler(
     source_fetcher: options.source_fetcher ?? createSourceFetcher(),
     ai_normalizer,
     ingredient_linker,
+    ingredient_normalizer: options.ingredient_normalizer ??
+      default_openrouter_normalizer,
     worker_secret,
     visibility_timeout_seconds: options.visibility_timeout_seconds,
     background_task_runner: options.background_task_runner ??

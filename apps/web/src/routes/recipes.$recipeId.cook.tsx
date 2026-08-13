@@ -92,6 +92,11 @@ export function scaleRecipe(recipe: IRecipe, scaleFactor: number): IRecipe {
     ingredients: recipe.ingredients.map((ingredient: IRecipeIngredient): IRecipeIngredient => ({
       ...ingredient,
       quantity: scaleQuantityByFactor(ingredient.quantity, scaleFactor),
+      measurements: (ingredient.measurements ?? []).map((measurement) => ({
+        ...measurement,
+        quantityMin: measurement.quantityMin * scaleFactor,
+        quantityMax: measurement.quantityMax * scaleFactor,
+      })),
     })),
   };
 }

@@ -42,7 +42,17 @@ export interface IRecipeIngredient {
   unit: string | null;
   name: string;
   note: string | null;
+  measurements?: IIngredientMeasurement[];
   variationOfId?: string | null;
+}
+
+export interface IIngredientMeasurement {
+  id: string;
+  quantityMin: number;
+  quantityMax: number;
+  unit: string | null;
+  isPrimary: boolean;
+  sortOrder: number;
 }
 
 export interface IIngredientEditInput {

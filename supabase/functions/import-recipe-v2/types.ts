@@ -71,7 +71,15 @@ export interface RecipeIngredient {
   readonly unit: string | null;
   readonly name: string;
   readonly notes: string | null;
+  readonly measurements?: readonly IngredientMeasurement[];
   readonly sort_order?: number;
+}
+
+export interface IngredientMeasurement {
+  readonly quantity_min: number;
+  readonly quantity_max: number;
+  readonly unit: string | null;
+  readonly is_primary: boolean;
 }
 
 export interface NormalizedRecipeStep {
@@ -183,6 +191,16 @@ export interface AiNormalizationInput {
 
 export interface AiNormalizationAdapter {
   normalize(input: AiNormalizationInput): Promise<NormalizedRecipeDraft>;
+}
+
+export interface IngredientNormalizationInput {
+  readonly ingredients: readonly string[];
+}
+
+export interface IngredientNormalizationAdapter {
+  normalizeIngredients(
+    input: IngredientNormalizationInput,
+  ): Promise<readonly RecipeIngredient[]>;
 }
 
 export interface ImportJobState {

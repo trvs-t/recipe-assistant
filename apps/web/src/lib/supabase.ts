@@ -13,6 +13,7 @@ import {
   type IImportRequest,
   type IImportSubmission as IContractImportSubmission,
   type IIngredientEditInput,
+  type IIngredientMeasurement,
   type IRecipe,
   type IRecipeIngredient,
   type IRecipeStep,
@@ -53,6 +54,16 @@ interface IIngredientRow extends Record<string, unknown> {
   notes: string | null;
   sort_order: number;
   variation_of_id: string | null;
+}
+
+interface IIngredientMeasurementRow extends Record<string, unknown> {
+  id: string;
+  ingredient_id: string;
+  quantity_min: number;
+  quantity_max: number;
+  unit: string | null;
+  is_primary: boolean;
+  sort_order: number;
 }
 
 interface IStepRow extends Record<string, unknown> {
@@ -190,6 +201,12 @@ export interface ILocalDatabase {
         Update: Record<string, unknown> & Partial<IIngredientRow>;
         Relationships: [];
       };
+      ingredient_measurements: {
+        Row: IIngredientMeasurementRow;
+        Insert: Partial<IIngredientMeasurementRow>;
+        Update: Partial<IIngredientMeasurementRow>;
+        Relationships: [];
+      };
       steps: {
         Row: IStepRow;
         Insert: Partial<IStepRow>;
@@ -285,6 +302,16 @@ export function isMissingFolderSchemaError(error: unknown): boolean {
     searchableText.includes('schema cache') ||
     searchableText.includes('could not find')
   );
+}
+
+function isMissingIngredientMeasurementsError(error: unknown): boolean {
+  if (!isRecord(error)) {
+    return false;
+  }
+  const code: unknown = error['code'];
+  const message: unknown = error['message'];
+  return code === '42P01' ||
+    (typeof message === 'string' && message.includes('ingredient_measurements'));
 }
 
 function folderSchemaUnavailableError(cause: unknown): SupabaseAdapterError {
@@ -532,6 +559,7 @@ function mapRecipeRow(
   row: IRecipeRow,
   ingredients: IIngredientRow[],
   steps: IStepRow[],
+  measurements: IIngredientMeasurementRow[] = [],
   folderIds: string[] = [],
 ): IRecipeWithFlow {
   const sortedIngredients: IIngredientRow[] = [...ingredients].sort(
@@ -539,6 +567,8 @@ function mapRecipeRow(
   );
   const sortedSteps: IStepRow[] = [...steps].sort(compareSortOrder);
   const flow: IRecipeFlow = mapRecipeFlow(row.flow_graph, sortedSteps, sortedIngredients);
+  const measurementsByIngredientId: Map<string, IIngredientMeasurement[]> =
+    mapIngredientMeasurements(measurements);
 
   return {
     id: row.id,
@@ -561,6 +591,7 @@ function mapRecipeRow(
         unit: ingredient.unit,
         name: ingredient.name,
         note: ingredient.notes,
+        measurements: measurementsByIngredientId.get(ingredient.id) ?? [],
         variationOfId: ingredient.variation_of_id,
       }),
     ),
@@ -574,6 +605,28 @@ function mapRecipeRow(
     ),
     flow,
   };
+}
+
+function mapIngredientMeasurements(
+  rows: readonly IIngredientMeasurementRow[],
+): Map<string, IIngredientMeasurement[]> {
+  const byIngredientId: Map<string, IIngredientMeasurement[]> = new Map();
+  for (const row of [...rows].sort(
+    (first: IIngredientMeasurementRow, second: IIngredientMeasurementRow): number =>
+      first.sort_order - second.sort_order,
+  )) {
+    const existing: IIngredientMeasurement[] = byIngredientId.get(row.ingredient_id) ?? [];
+    existing.push({
+      id: row.id,
+      quantityMin: row.quantity_min,
+      quantityMax: row.quantity_max,
+      unit: row.unit,
+      isPrimary: row.is_primary,
+      sortOrder: row.sort_order,
+    });
+    byIngredientId.set(row.ingredient_id, existing);
+  }
+  return byIngredientId;
 }
 
 function mapRecipeSummary(row: IRecipeRow, folderIds: string[] = []): IRecipeSummary {
@@ -855,7 +908,19 @@ export function createRemoteAdapter(client: TypedSupabaseClient): ISupabaseAdapt
     const folderIds: string[] = folderLinksResult.error === null
       ? folderLinksResult.data.map((row: IRecipeFolderRow): string => row.folder_id)
       : [];
-    return mapRecipeRow(recipeResult.data, ingredientsResult.data, stepsResult.data, folderIds);
+    const ingredientIds: string[] = ingredientsResult.data.map(
+      (ingredient: IIngredientRow): string => ingredient.id,
+    );
+    const measurementsResult = ingredientIds.length === 0
+      ? { data: [] as IIngredientMeasurementRow[], error: null }
+      : await client.from('ingredient_measurements').select('*').in('ingredient_id', ingredientIds);
+    if (measurementsResult.error && !isMissingIngredientMeasurementsError(measurementsResult.error)) {
+      throw new SupabaseAdapterError('Unable to load this recipe\'s alternate measurements.', measurementsResult.error);
+    }
+    const measurements: IIngredientMeasurementRow[] = measurementsResult.error === null
+      ? measurementsResult.data as IIngredientMeasurementRow[]
+      : [];
+    return mapRecipeRow(recipeResult.data, ingredientsResult.data, stepsResult.data, measurements, folderIds);
   }
 
   async function listFolders(): Promise<IFolder[]> {

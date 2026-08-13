@@ -2,6 +2,15 @@ import type { Ingredient } from "./schemas";
 
 export interface ScaledIngredient extends Ingredient {
   scaledQuantity: number | null;
+  scaledMeasurements: readonly ScaledIngredientMeasurement[];
+}
+
+export interface ScaledIngredientMeasurement {
+  quantityMin: number;
+  quantityMax: number;
+  unit: string | null;
+  isPrimary: boolean;
+  sortOrder: number;
 }
 
 export function calculateScaleFactor(
@@ -31,5 +40,10 @@ export function scaleIngredient(
     scaledQuantity: ingredient.quantity === null
       ? null
       : ingredient.quantity * scaleFactor,
+    scaledMeasurements: ingredient.measurements.map((measurement) => ({
+      ...measurement,
+      quantityMin: measurement.quantityMin * scaleFactor,
+      quantityMax: measurement.quantityMax * scaleFactor,
+    })),
   };
 }

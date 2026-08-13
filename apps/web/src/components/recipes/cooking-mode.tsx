@@ -6,7 +6,7 @@ import { Link } from '@tanstack/react-router';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { formatQuantity } from '@/features/recipes/scaling';
+import { formatMeasurement, formatQuantity } from '@/features/recipes/scaling';
 import { cn } from '@/lib/cn';
 
 import type { IRecipe, IRecipeIngredient, IRecipeStep } from '@/features/recipes/contracts';
@@ -284,5 +284,9 @@ export function getCookingIngredients(recipe: IRecipe, stepId: string): IRecipeI
 
 function formatIngredientAmount(ingredient: IRecipeIngredient): string {
   const quantity: string = formatQuantity(ingredient.quantity);
-  return ingredient.unit === null ? quantity : `${quantity} ${ingredient.unit}`;
+  const primary: string = ingredient.unit === null ? quantity : `${quantity} ${ingredient.unit}`;
+  const alternatives: string[] = (ingredient.measurements ?? [])
+    .filter((measurement): boolean => !measurement.isPrimary)
+    .map((measurement): string => formatMeasurement(measurement));
+  return alternatives.length === 0 ? primary : `${primary} (${alternatives.join(' / ')})`;
 }

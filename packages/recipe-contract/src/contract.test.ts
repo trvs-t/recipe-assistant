@@ -26,11 +26,35 @@ describe("recipe contract", () => {
           unit: "cup",
           name: "flour",
           notes: null,
+          measurements: [],
           sortOrder: 0,
         },
         factor,
       ).scaledQuantity,
     ).toBe(3);
+  });
+
+  it("scales every source-provided equivalent measurement and range", () => {
+    const scaled = scaleIngredient({
+      id: "butter",
+      originalText: "228 g (1 cup or 2 sticks) butter",
+      quantity: 228,
+      unit: "g",
+      name: "butter",
+      notes: null,
+      measurements: [
+        { quantityMin: 228, quantityMax: 228, unit: "g", isPrimary: true, sortOrder: 0 },
+        { quantityMin: 1, quantityMax: 1, unit: "cup", isPrimary: false, sortOrder: 1 },
+        { quantityMin: 2, quantityMax: 2, unit: "sticks", isPrimary: false, sortOrder: 2 },
+      ],
+      sortOrder: 0,
+    }, 2);
+
+    expect(scaled.scaledMeasurements.map((measurement) => [
+      measurement.quantityMin,
+      measurement.quantityMax,
+      measurement.unit,
+    ])).toEqual([[456, 456, "g"], [2, 2, "cup"], [4, 4, "sticks"]]);
   });
 
   it("creates a deterministic linear graph fallback", () => {

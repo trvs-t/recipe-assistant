@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatQuantity, scaleQuantity, scaleQuantityByFactor } from './scaling';
+import { formatMeasurement, formatQuantity, scaleQuantity, scaleQuantityByFactor } from './scaling';
 
 describe('recipe scaling', (): void => {
   it('scales quantities with the original serving ratio', (): void => {
@@ -21,5 +21,24 @@ describe('recipe scaling', (): void => {
     expect(formatQuantity(2.6666666666666665)).toBe('2⅔');
     expect(formatQuantity(1.0625)).toBe('1 1/16');
     expect(formatQuantity(1.23456)).toBe('1.235');
+  });
+
+  it('formats equivalent measurements and preserves ranges', (): void => {
+    expect(formatMeasurement({
+      id: 'grams',
+      quantityMin: 360,
+      quantityMax: 480,
+      unit: 'g',
+      isPrimary: false,
+      sortOrder: 1,
+    })).toBe('360–480 g');
+    expect(formatMeasurement({
+      id: 'sticks',
+      quantityMin: 2,
+      quantityMax: 2,
+      unit: 'sticks',
+      isPrimary: false,
+      sortOrder: 2,
+    }, 2)).toBe('4 sticks');
   });
 });

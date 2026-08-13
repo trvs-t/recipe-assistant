@@ -22,6 +22,21 @@ export const ingredientSchema = z.object({
   unit: nullableTrimmedTextSchema,
   name: z.string().trim().min(1),
   notes: nullableTrimmedTextSchema,
+  measurements: z.array(z.object({
+    quantityMin: z.number().positive(),
+    quantityMax: z.number().positive(),
+    unit: nullableTrimmedTextSchema,
+    isPrimary: z.boolean(),
+    sortOrder: z.number().int().nonnegative(),
+  }).refine(
+    (measurement): boolean => measurement.quantityMax >= measurement.quantityMin,
+    "Measurement ranges must be ordered",
+  )).refine(
+    (measurements): boolean =>
+      measurements.length === 0 ||
+      measurements.filter((measurement): boolean => measurement.isPrimary).length === 1,
+    "Ingredient measurements must have exactly one primary measurement",
+  ).default([]),
   sortOrder: z.number().int().nonnegative(),
 });
 

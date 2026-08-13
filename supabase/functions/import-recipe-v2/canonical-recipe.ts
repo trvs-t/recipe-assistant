@@ -15,6 +15,15 @@ export interface CanonicalIngredientPayload {
   readonly unit: string | null;
   readonly name: string;
   readonly notes: string | null;
+  readonly measurements: readonly CanonicalIngredientMeasurementPayload[];
+  readonly sortOrder: number;
+}
+
+export interface CanonicalIngredientMeasurementPayload {
+  readonly quantityMin: number;
+  readonly quantityMax: number;
+  readonly unit: string | null;
+  readonly isPrimary: boolean;
   readonly sortOrder: number;
 }
 
@@ -53,15 +62,25 @@ export function mapToCanonicalRecipe(
       (
         ingredient: RecipeIngredient,
         index: number,
-      ): CanonicalIngredientPayload => ({
-        id: stableId(ingredient.id, "ingredient", index),
-        originalText: ingredient.original,
-        quantity: positiveOrNull(ingredient.quantity),
-        unit: ingredient.unit,
-        name: ingredient.name,
-        notes: ingredient.notes,
-        sortOrder: nonNegativeIntegerOrDefault(ingredient.sort_order, index),
-      }),
+      ): CanonicalIngredientPayload => {
+        const measurements: readonly CanonicalIngredientMeasurementPayload[] =
+          canonicalMeasurements(ingredient);
+        const primary: CanonicalIngredientMeasurementPayload | undefined =
+          measurements.find(
+            (measurement: CanonicalIngredientMeasurementPayload): boolean =>
+              measurement.isPrimary,
+          );
+        return {
+          id: stableId(ingredient.id, "ingredient", index),
+          originalText: ingredient.original,
+          quantity: primary?.quantityMin ?? positiveOrNull(ingredient.quantity),
+          unit: primary?.unit ?? ingredient.unit,
+          name: ingredient.name,
+          notes: ingredient.notes,
+          measurements,
+          sortOrder: nonNegativeIntegerOrDefault(ingredient.sort_order, index),
+        };
+      },
     );
 
   const steps: readonly CanonicalStepPayload[] = recipeSteps(recipe).map(
@@ -90,7 +109,9 @@ export function mapToCanonicalRecipe(
   );
 
   const ingredientIds: Set<string> = new Set<string>(
-    ingredients.map((ingredient: CanonicalIngredientPayload): string => ingredient.id),
+    ingredients.map((ingredient: CanonicalIngredientPayload): string =>
+      ingredient.id
+    ),
   );
   const flow: RecipeFlow = validFlow(recipe.flow, steps, ingredientIds) ??
     createLinearFlow(steps);
@@ -139,6 +160,18 @@ export function assertSemanticallyValidRecipe(recipe: NormalizedRecipe): void {
     ) {
       throw invalidRecipe("Recipe ingredients must contain meaningful text");
     }
+    for (const measurement of ingredient.measurements ?? []) {
+      if (
+        !Number.isFinite(measurement.quantity_min) ||
+        !Number.isFinite(measurement.quantity_max) ||
+        measurement.quantity_min <= 0 ||
+        measurement.quantity_max < measurement.quantity_min
+      ) {
+        throw invalidRecipe(
+          "Ingredient measurement ranges must be positive and ordered",
+        );
+      }
+    }
     if (
       ingredient.quantity !== null &&
       (!Number.isFinite(ingredient.quantity) || ingredient.quantity <= 0)
@@ -162,6 +195,44 @@ export function assertSemanticallyValidRecipe(recipe: NormalizedRecipe): void {
       "Recipe servings must be greater than zero when supplied",
     );
   }
+}
+
+function canonicalMeasurements(
+  ingredient: RecipeIngredient,
+): readonly CanonicalIngredientMeasurementPayload[] {
+  const supplied = ingredient.measurements ?? [];
+  const valid = supplied.filter((measurement): boolean =>
+    Number.isFinite(measurement.quantity_min) &&
+    Number.isFinite(measurement.quantity_max) &&
+    measurement.quantity_min > 0 &&
+    measurement.quantity_max >= measurement.quantity_min
+  );
+  const measurements = valid.length > 0
+    ? valid
+    : ingredient.quantity === null
+    ? []
+    : [{
+      quantity_min: ingredient.quantity,
+      quantity_max: ingredient.quantity,
+      unit: ingredient.unit,
+      is_primary: true,
+    }];
+  const requestedPrimaryIndex: number = measurements.findIndex(
+    (measurement): boolean => measurement.is_primary,
+  );
+  const primaryIndex: number = requestedPrimaryIndex < 0
+    ? 0
+    : requestedPrimaryIndex;
+  return measurements.map((
+    measurement,
+    index,
+  ): CanonicalIngredientMeasurementPayload => ({
+    quantityMin: measurement.quantity_min,
+    quantityMax: measurement.quantity_max,
+    unit: measurement.unit,
+    isPrimary: index === primaryIndex,
+    sortOrder: index,
+  }));
 }
 
 function invalidRecipe(message: string): PipelineError {

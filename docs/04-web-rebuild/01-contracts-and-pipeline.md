@@ -42,7 +42,7 @@ submit
   -> queued
   -> fetching
   -> extracting
-  -> normalizing (only when deterministic extraction is insufficient)
+  -> normalizing (full recipe fallback or focused JSON-LD ingredient cleanup)
   -> validating
   -> persisting
   -> completed | needs_input | retry_wait -> queued | failed
@@ -75,7 +75,7 @@ never as the source of durability.
 3. Import gate: the offline corpus exercises production extraction code; every
    job terminates or becomes retryable; each attempt performs one page fetch.
 4. Persistence gate: SQL ownership/RLS, idempotency, leases, graph edges, and an
-   atomic recipe write are verified against local Supabase.
+atomic recipe write are verified against local Supabase.
 5. Vertical-slice gate: submit a fixture URL, observe job progress, open the
    resulting recipe, change portions, view the flow, and open the source URL.
 

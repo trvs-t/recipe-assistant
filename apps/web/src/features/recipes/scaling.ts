@@ -52,6 +52,18 @@ export function formatQuantity(quantity: number | null): string {
   return roundedQuantity.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
 }
 
+export function formatMeasurement(
+  measurement: IIngredientMeasurement,
+  scaleFactor: number = 1,
+): string {
+  const minimum: number = measurement.quantityMin * scaleFactor;
+  const maximum: number = measurement.quantityMax * scaleFactor;
+  const amount: string = Math.abs(minimum - maximum) < 0.0001
+    ? formatQuantity(minimum)
+    : `${formatQuantity(minimum)}–${formatQuantity(maximum)}`;
+  return measurement.unit === null ? amount : `${amount} ${measurement.unit}`;
+}
+
 interface IQuantityFraction {
   label: string;
   value: number;
@@ -105,3 +117,4 @@ function findClosestFraction(fractionalPart: number): IQuantityFraction | null {
 
   return closestDistance <= FRACTION_MATCH_TOLERANCE ? closestFraction : null;
 }
+import type { IIngredientMeasurement } from './contracts';
