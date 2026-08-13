@@ -69,7 +69,7 @@ describe('local automatic authentication', (): void => {
 });
 
 describe('Supabase authentication gateway', (): void => {
-  it('supports password sign-in, social sign-in, auth events, and sign-out', async (): Promise<void> => {
+  it('supports Google sign-in, auth events, and sign-out', async (): Promise<void> => {
     const user: AuthUser = { id: 'user-1', email: 'cook@example.com' } as unknown as AuthUser;
     const authState = {
       callback: null as ((event: string, session: AuthSession | null) => void) | null,
@@ -78,7 +78,6 @@ describe('Supabase authentication gateway', (): void => {
     const fakeClient: TypedSupabaseClient = {
       auth: {
         getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
-        signInWithPassword: vi.fn().mockResolvedValue({ data: { user }, error: null }),
         signInWithOAuth: vi.fn().mockResolvedValue({ data: { provider: 'google', url: null }, error: null }),
         signOut: vi.fn().mockResolvedValue({ error: null }),
         onAuthStateChange: vi.fn().mockImplementation(
@@ -91,11 +90,7 @@ describe('Supabase authentication gateway', (): void => {
     } as unknown as TypedSupabaseClient;
     const gateway = createSupabaseAuthGateway(fakeClient);
 
-    await expect(gateway.signInWithPassword('cook@example.com', 'secret')).resolves.toEqual({
-      id: 'user-1',
-      email: 'cook@example.com',
-    });
-    await gateway.signInWithSocial('google', 'https://recipes.example.com/');
+    await gateway.signInWithGoogle('https://recipes.example.com/');
     await gateway.signOut();
 
     const receivedUsers: Array<{ id: string; email: string | null } | null> = [];

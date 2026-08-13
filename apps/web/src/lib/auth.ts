@@ -2,7 +2,6 @@ import type {
   AuthChangeEvent,
   AuthSession,
   AuthUser,
-  Provider,
 } from '@supabase/supabase-js';
 
 import type { TypedSupabaseClient } from './supabase';
@@ -23,8 +22,6 @@ export interface ILocalAuthGateway {
   signInWithPassword(email: string, password: string): Promise<string>;
 }
 
-export type SocialAuthProvider = Extract<Provider, 'github' | 'google'>;
-
 export interface IAuthenticatedUser {
   id: string;
   email: string | null;
@@ -32,8 +29,7 @@ export interface IAuthenticatedUser {
 
 export interface IAuthGateway {
   getCurrentUser(): Promise<IAuthenticatedUser | null>;
-  signInWithPassword(email: string, password: string): Promise<IAuthenticatedUser>;
-  signInWithSocial(provider: SocialAuthProvider, redirectTo: string): Promise<void>;
+  signInWithGoogle(redirectTo: string): Promise<void>;
   signOut(): Promise<void>;
   onAuthStateChange(callback: (user: IAuthenticatedUser | null) => void): () => void;
 }
@@ -85,26 +81,13 @@ export function createSupabaseAuthGateway(client: TypedSupabaseClient): IAuthGat
 
       return mapAuthSession(result.data.session);
     },
-    async signInWithPassword(email: string, password: string): Promise<IAuthenticatedUser> {
-      const result = await client.auth.signInWithPassword({ email, password });
-      if (result.error !== null) {
-        throw new Error(`Unable to sign in: ${result.error.message}`);
-      }
-
-      const user: IAuthenticatedUser | null = mapAuthUser(result.data.user);
-      if (user === null) {
-        throw new Error('Sign-in did not return an authenticated user.');
-      }
-
-      return user;
-    },
-    async signInWithSocial(provider: SocialAuthProvider, redirectTo: string): Promise<void> {
+    async signInWithGoogle(redirectTo: string): Promise<void> {
       const result = await client.auth.signInWithOAuth({
-        provider,
+        provider: 'google',
         options: { redirectTo },
       });
       if (result.error !== null) {
-        throw new Error(`Unable to start ${provider} sign-in: ${result.error.message}`);
+        throw new Error(`Unable to start Google sign-in: ${result.error.message}`);
       }
     },
     async signOut(): Promise<void> {
