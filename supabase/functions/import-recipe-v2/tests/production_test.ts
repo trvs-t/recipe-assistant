@@ -1,5 +1,6 @@
 import { normalizeRecipeDraft } from "../ai-normalizer.ts";
 import {
+  type CanonicalIngredientPayload,
   type CanonicalRecipePayload,
   mapToCanonicalRecipe,
 } from "../canonical-recipe.ts";
@@ -20,6 +21,7 @@ import {
 } from "../openrouter-normalizer.ts";
 import {
   type ClaimedRecipeImport,
+  type IngredientBackfillSource,
   isMissingTextImportFunctionError,
   type RecipeImportGateway,
   type RecipeImportWorkerStage,
@@ -121,6 +123,22 @@ class FakeGateway implements RecipeImportGateway {
     recipe: CanonicalRecipePayload,
   ): Promise<string> {
     this.persisted.push({ job_id: claim.job_id, recipe });
+    return "recipe-1";
+  }
+
+  async loadIngredientBackfillSource(
+    claim: ClaimedRecipeImport,
+  ): Promise<IngredientBackfillSource> {
+    return {
+      recipe_id: claim.target_recipe_id ?? "recipe-1",
+      ingredients: ["1 cup rice"],
+    };
+  }
+
+  async persistIngredientBackfill(
+    _claim: ClaimedRecipeImport,
+    _ingredients: readonly CanonicalIngredientPayload[],
+  ): Promise<string> {
     return "recipe-1";
   }
 

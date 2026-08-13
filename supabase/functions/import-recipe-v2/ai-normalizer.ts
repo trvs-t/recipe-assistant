@@ -107,13 +107,13 @@ export function normalizeRecipeDraft(
 export function normalizeIngredientDrafts(
   value: unknown,
 ): readonly RecipeIngredient[] {
-  if (!isRecord(value)) {
+  if (!Array.isArray(value) && !isRecord(value)) {
     throw invalidOutput(
-      "AI ingredient normalization returned a non-object result",
+      "AI ingredient normalization returned an invalid result",
     );
   }
   const ingredients: readonly RecipeIngredient[] | null = ingredientsArray(
-    value["ingredients"],
+    Array.isArray(value) ? value : value["ingredients"],
   );
   if (ingredients === null || ingredients.length === 0) {
     throw invalidOutput("AI ingredient normalization returned no ingredients");

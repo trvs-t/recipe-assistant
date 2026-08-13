@@ -3,6 +3,7 @@ import {
   type CanonicalIngredientPayload,
   type CanonicalRecipePayload,
   type CanonicalStepPayload,
+  mapToCanonicalIngredients,
   mapToCanonicalRecipe,
 } from "./canonical-recipe.ts";
 import {
@@ -61,6 +62,41 @@ export async function processClaimedImport(
   let stage: ImportStage = "fetch";
   try {
     await markStage(dependencies.gateway, claim, "fetch");
+    if (
+      claim.target_recipe_id !== undefined && claim.target_recipe_id !== null
+    ) {
+      const source = await dependencies.gateway.loadIngredientBackfillSource(
+        claim,
+      );
+
+      stage = "extract";
+      await markStage(dependencies.gateway, claim, "extract", 0);
+
+      stage = "normalize";
+      await markStage(dependencies.gateway, claim, "normalize");
+      if (dependencies.ingredient_normalizer === undefined) {
+        throw new PipelineError({
+          code: "AI_NORMALIZER_NOT_CONFIGURED",
+          message: "Ingredient normalization is unavailable for the backfill",
+          stage: "normalize",
+          retryable: false,
+        });
+      }
+      const normalizedIngredients = await dependencies.ingredient_normalizer
+        .normalizeIngredients({ ingredients: source.ingredients });
+
+      stage = "validate";
+      await markStage(dependencies.gateway, claim, "validate");
+      const ingredients: readonly CanonicalIngredientPayload[] =
+        mapToCanonicalIngredients(normalizedIngredients);
+
+      stage = "persist";
+      await markStage(dependencies.gateway, claim, "persist");
+      const recipe_id: string = await dependencies.gateway
+        .persistIngredientBackfill(claim, ingredients);
+      return { status: "completed", recipe_id };
+    }
+
     const source: SourceDocument =
       claim.source_text === undefined || claim.source_text === null
         ? await fetchUrlSource(claim, dependencies.source_fetcher)

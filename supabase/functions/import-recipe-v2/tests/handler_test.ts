@@ -1,4 +1,5 @@
 import { assertEquals } from "./assertions.ts";
+import { type CanonicalIngredientPayload } from "../canonical-recipe.ts";
 import {
   createImportHandler,
   type ImportHandlerDependencies,
@@ -15,6 +16,7 @@ import {
 import {
   type ClaimedRecipeImport,
   type EnqueueRecipeImportInput,
+  type IngredientBackfillSource,
   type RecipeImportGateway,
 } from "../supabase-adapter.ts";
 import { processClaimedImport } from "../worker.ts";
@@ -72,6 +74,23 @@ class FakeGateway implements RecipeImportGateway {
   ): Promise<string> {
     this.persistedRecipe = recipe;
     return Promise.resolve("recipe-1");
+  }
+
+  loadIngredientBackfillSource(
+    claim: ClaimedRecipeImport,
+  ): Promise<IngredientBackfillSource> {
+    return Promise.resolve({
+      recipe_id: claim.target_recipe_id ?? "recipe-1",
+      ingredients: ["228 gms (1 cup or 2 sticks) Butter (softened)"],
+    });
+  }
+
+  persistIngredientBackfill(
+    claim: ClaimedRecipeImport,
+    ingredients: readonly CanonicalIngredientPayload[],
+  ): Promise<string> {
+    this.persistedRecipe = ingredients;
+    return Promise.resolve(claim.target_recipe_id ?? "recipe-1");
   }
 
   finishRecipeImportError(
@@ -306,4 +325,57 @@ Deno.test("JSON-LD ingredients use focused normalization before persistence", as
     ingredients?: Array<{ measurements?: unknown[] }>;
   };
   assertEquals(persisted.ingredients?.[0]?.measurements?.length, 3);
+});
+
+Deno.test("ingredient backfill reparses stored text and preserves the target recipe", async (): Promise<void> => {
+  const gateway: FakeGateway = new FakeGateway();
+  const ingredient_normalizer: IngredientNormalizationAdapter = {
+    normalizeIngredients(input) {
+      return Promise.resolve([{
+        original: input.ingredients[0] ?? "",
+        quantity: 228,
+        unit: "gms",
+        name: "Butter",
+        notes: "softened",
+        measurements: [
+          {
+            quantity_min: 228,
+            quantity_max: 228,
+            unit: "gms",
+            is_primary: true,
+          },
+          { quantity_min: 1, quantity_max: 1, unit: "cup", is_primary: false },
+          {
+            quantity_min: 2,
+            quantity_max: 2,
+            unit: "sticks",
+            is_primary: false,
+          },
+        ],
+      }]);
+    },
+  };
+  const claim: ClaimedRecipeImport = {
+    message_id: 3,
+    job_id: "job-backfill",
+    source_url: "https://recipes.example/buttercream",
+    source_text: null,
+    attempt_number: 1,
+    max_attempts: 3,
+    target_recipe_id: "recipe-existing",
+  };
+
+  const result = await processClaimedImport(claim, {
+    gateway,
+    source_fetcher: dependencies(gateway).source_fetcher,
+    ai_normalizer: dependencies(gateway).ai_normalizer,
+    ingredient_normalizer,
+  });
+
+  assertEquals(result.status, "completed");
+  assertEquals(result.recipe_id, "recipe-existing");
+  const persisted = gateway
+    .persistedRecipe as readonly CanonicalIngredientPayload[];
+  assertEquals(persisted[0]?.name, "Butter");
+  assertEquals(persisted[0]?.measurements.length, 3);
 });

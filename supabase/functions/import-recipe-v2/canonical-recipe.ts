@@ -57,32 +57,8 @@ export function mapToCanonicalRecipe(
   source_url: string | null,
 ): CanonicalRecipePayload {
   assertSemanticallyValidRecipe(recipe);
-  const ingredients: readonly CanonicalIngredientPayload[] = recipe.ingredients
-    .map(
-      (
-        ingredient: RecipeIngredient,
-        index: number,
-      ): CanonicalIngredientPayload => {
-        const measurements: readonly CanonicalIngredientMeasurementPayload[] =
-          canonicalMeasurements(ingredient);
-        const primary: CanonicalIngredientMeasurementPayload | undefined =
-          measurements.find(
-            (measurement: CanonicalIngredientMeasurementPayload): boolean =>
-              measurement.isPrimary,
-          );
-        return {
-          id: stableId(ingredient.id, "ingredient", index),
-          originalText: ingredient.original,
-          quantity: primary?.quantityMin ?? positiveOrNull(ingredient.quantity),
-          unit: primary?.unit ?? ingredient.unit,
-          name: ingredient.name,
-          notes: ingredient.notes,
-          measurements,
-          sortOrder: nonNegativeIntegerOrDefault(ingredient.sort_order, index),
-        };
-      },
-    );
-
+  const ingredients: readonly CanonicalIngredientPayload[] =
+    mapToCanonicalIngredients(recipe.ingredients);
   const steps: readonly CanonicalStepPayload[] = recipeSteps(recipe).map(
     (
       step: NormalizedRecipeStep | string,
@@ -144,6 +120,35 @@ export function mapToCanonicalRecipe(
     steps,
     flow,
   };
+}
+
+export function mapToCanonicalIngredients(
+  sourceIngredients: readonly RecipeIngredient[],
+): readonly CanonicalIngredientPayload[] {
+  return sourceIngredients.map(
+    (
+      ingredient: RecipeIngredient,
+      index: number,
+    ): CanonicalIngredientPayload => {
+      const measurements: readonly CanonicalIngredientMeasurementPayload[] =
+        canonicalMeasurements(ingredient);
+      const primary: CanonicalIngredientMeasurementPayload | undefined =
+        measurements.find(
+          (measurement: CanonicalIngredientMeasurementPayload): boolean =>
+            measurement.isPrimary,
+        );
+      return {
+        id: stableId(ingredient.id, "ingredient", index),
+        originalText: ingredient.original,
+        quantity: primary?.quantityMin ?? positiveOrNull(ingredient.quantity),
+        unit: primary?.unit ?? ingredient.unit,
+        name: ingredient.name,
+        notes: ingredient.notes,
+        measurements,
+        sortOrder: nonNegativeIntegerOrDefault(ingredient.sort_order, index),
+      };
+    },
+  );
 }
 
 export function assertSemanticallyValidRecipe(recipe: NormalizedRecipe): void {

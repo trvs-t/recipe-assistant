@@ -1,7 +1,10 @@
 import { type SupabaseClient } from "@supabase/supabase-js";
 
 import { PipelineError } from "./errors.ts";
-import { type CanonicalRecipePayload } from "./canonical-recipe.ts";
+import {
+  type CanonicalIngredientPayload,
+  type CanonicalRecipePayload,
+} from "./canonical-recipe.ts";
 import { type ErrorCode } from "./types.ts";
 
 export interface AuthenticatedImportUser {
@@ -29,6 +32,12 @@ export interface ClaimedRecipeImport {
   readonly source_text?: string | null;
   readonly attempt_number: number;
   readonly max_attempts: number;
+  readonly target_recipe_id?: string | null;
+}
+
+export interface IngredientBackfillSource {
+  readonly recipe_id: string;
+  readonly ingredients: readonly string[];
 }
 
 export type RecipeImportWorkerStage =
@@ -54,6 +63,13 @@ export interface RecipeImportGateway {
   persistRecipeImport(
     claim: ClaimedRecipeImport,
     recipe: CanonicalRecipePayload,
+  ): Promise<string>;
+  loadIngredientBackfillSource(
+    claim: ClaimedRecipeImport,
+  ): Promise<IngredientBackfillSource>;
+  persistIngredientBackfill(
+    claim: ClaimedRecipeImport,
+    ingredients: readonly CanonicalIngredientPayload[],
   ): Promise<string>;
   finishRecipeImportError(
     claim: ClaimedRecipeImport,
@@ -174,7 +190,76 @@ export class SupabaseRecipeImportGateway implements RecipeImportGateway {
       source_text: nullableString(first["source_text"]),
       attempt_number: requiredInteger(first, "attempt_number", 1),
       max_attempts: requiredInteger(first, "max_attempts", 1),
+      target_recipe_id: nullableString(first["target_recipe_id"]),
     };
+  }
+
+  async loadIngredientBackfillSource(
+    claim: ClaimedRecipeImport,
+  ): Promise<IngredientBackfillSource> {
+    const target_recipe_id: string | null = claim.target_recipe_id ?? null;
+    if (target_recipe_id === null) {
+      throw persistenceError(
+        "Ingredient backfill is missing its target recipe",
+      );
+    }
+    const result: SupabaseCallResult = await this.transport.rpc(
+      "get_recipe_ingredient_backfill_source",
+      { p_recipe_id: target_recipe_id },
+    );
+    throwOnSupabaseError(
+      result,
+      "Unable to load the ingredient backfill source",
+    );
+    const row: Record<string, unknown> = firstRow(result.data);
+    const rawIngredients: unknown = row["ingredients"];
+    if (!Array.isArray(rawIngredients)) {
+      throw persistenceError(
+        "Ingredient backfill source returned invalid ingredients",
+      );
+    }
+    const ingredients: string[] = rawIngredients.map(
+      (value: unknown): string => {
+        const ingredient: string | null = nonEmptyString(value);
+        if (ingredient === null) {
+          throw persistenceError(
+            "Ingredient backfill source contains empty text",
+          );
+        }
+        return ingredient;
+      },
+    );
+    if (ingredients.length === 0) {
+      throw persistenceError(
+        "Ingredient backfill source contains no ingredients",
+      );
+    }
+    return {
+      recipe_id: requiredString(row, "recipe_id"),
+      ingredients,
+    };
+  }
+
+  async persistIngredientBackfill(
+    claim: ClaimedRecipeImport,
+    ingredients: readonly CanonicalIngredientPayload[],
+  ): Promise<string> {
+    const result: SupabaseCallResult = await this.transport.rpc(
+      "persist_recipe_ingredient_backfill",
+      {
+        p_job_id: claim.job_id,
+        p_attempt_number: claim.attempt_number,
+        p_ingredients: ingredients,
+      },
+    );
+    throwOnSupabaseError(result, "Unable to persist the ingredient backfill");
+    const recipe_id: string | null = scalarString(result.data);
+    if (recipe_id === null) {
+      throw persistenceError(
+        "Ingredient backfill persistence returned no recipe id",
+      );
+    }
+    return recipe_id;
   }
 
   async markStage(

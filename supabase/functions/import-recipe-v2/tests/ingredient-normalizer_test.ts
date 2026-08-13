@@ -79,3 +79,43 @@ Deno.test("normalizes JSON-LD ingredient strings into ranges and equivalent meas
   ]);
   assertEquals(ingredients[1]?.quantity, 3);
 });
+
+Deno.test("accepts a schema-equivalent top-level ingredient array", async (): Promise<void> => {
+  const sourceIngredient: string = "2 cups flour";
+  const output: readonly Record<string, unknown>[] = [{
+    id: "ingredient:0",
+    originalText: sourceIngredient,
+    quantity: 2,
+    unit: "cups",
+    name: "flour",
+    notes: null,
+    measurements: [
+      { quantityMin: 2, quantityMax: 2, unit: "cups", isPrimary: true },
+    ],
+    sortOrder: 0,
+  }];
+  const transport: OpenRouterTransport = {
+    fetch(): Promise<Response> {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: JSON.stringify(output) } }],
+          }),
+          { status: 200 },
+        ),
+      );
+    },
+  };
+  const normalizer = new OpenRouterNormalizer({
+    api_key: "test-key",
+    model: "deepseek/deepseek-v4-flash",
+    transport,
+  });
+
+  const ingredients = await normalizer.normalizeIngredients({
+    ingredients: [sourceIngredient],
+  });
+
+  assertEquals(ingredients[0]?.name, "flour");
+  assertEquals(ingredients[0]?.quantity, 2);
+});
