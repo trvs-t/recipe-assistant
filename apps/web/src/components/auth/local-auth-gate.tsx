@@ -175,11 +175,14 @@ export function AuthGate({ children }: IAuthGateProps): ReactElement {
   if (authenticationEnabled && state.user === null) {
     return (
       <AuthContext.Provider value={context}>
-        <GoogleLoginForm
-          error={state.error}
-          onSignIn={signInWithGoogle}
-          pending={state.actionPending}
-        />
+        <main className="flex min-h-screen items-center justify-center bg-[var(--background)] p-6">
+          <GoogleLoginForm
+            className="w-full max-w-md"
+            error={state.error}
+            onSignIn={signInWithGoogle}
+            pending={state.actionPending}
+          />
+        </main>
       </AuthContext.Provider>
     );
   }
