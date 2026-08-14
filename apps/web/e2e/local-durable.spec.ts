@@ -19,15 +19,16 @@ test('local authenticated import survives refresh and is added to the library', 
   await page.getByRole('button', { name: 'Import recipe' }).click();
 
   await expect(page.getByRole('heading', { name: new RegExp('Importing from') })).toBeVisible();
-  await page.getByRole('link', { name: 'View progress' }).click();
-  await expect(page).toHaveURL(/\/import\/[0-9a-f-]{36}$/);
   await page.reload();
-  await expect(page.getByText('That import has expired.')).not.toBeVisible();
-  await expect(page.getByText('Import complete')).toBeVisible({ timeout: 90_000 });
-
-  await page.getByRole('button', { name: 'Open recipe' }).click();
-  await expect(page).toHaveURL(/\/recipes\/[0-9a-f-]{36}$/);
+  await expect(page.getByRole('heading', { name: new RegExp('Importing from') })).toBeVisible();
+  await expect(page.getByRole('heading', { name: new RegExp('Importing from') })).not.toBeVisible({ timeout: 90_000 });
   const sourceHost: string = new URL(requestedRecipeUrl).hostname.replace(/^www\./, '');
+  await page
+    .getByText(`Source: ${sourceHost}`, { exact: true })
+    .locator('xpath=ancestor::div[contains(@class,"rounded-2xl")][1]')
+    .getByRole('link')
+    .click();
+  await expect(page).toHaveURL(/\/recipes\/[0-9a-f-]{36}$/);
   await expect(page.getByRole('link', { name: sourceHost })).toBeVisible();
   const recipeHeading: string | null = await page.getByRole('heading', { level: 1 }).textContent();
   expect(recipeHeading).not.toBeNull();

@@ -6,7 +6,6 @@ import { createFileRoute, Link, Outlet } from '@tanstack/react-router';
 import { IngredientEditor } from '@/components/recipes/ingredient-editor';
 import { IngredientLinkRepair } from '@/components/recipes/ingredient-link-repair';
 import { RecipeFolderPicker } from '@/components/recipes/recipe-folder-picker';
-import { RecipeFlowDiagram } from '@/components/recipes/recipe-flow-diagram';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -122,7 +121,6 @@ function RecipeDetailPage(): ReactElement {
 
         <section className="min-w-0 lg:col-start-1 lg:row-start-2">
           <IngredientLinkRepair recipe={recipe} />
-          <RecipeFlowDiagram recipe={recipe} />
         </section>
       </div>
       <Outlet />
