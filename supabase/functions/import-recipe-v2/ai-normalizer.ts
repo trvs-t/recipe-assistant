@@ -1,7 +1,9 @@
 import { PipelineError } from "./errors.ts";
+import { parseIngredientLinkOutput } from "./ingredient-linker.ts";
 import {
   type AiNormalizationAdapter,
   type AiNormalizationInput,
+  type IngredientLinkingInput,
   type IngredientMeasurement,
   type NormalizedRecipe,
   type NormalizedRecipeDraft,
@@ -78,6 +80,21 @@ export function normalizeRecipeDraft(
     draft["cuisineType"] ?? draft["cuisine_type"],
     "cuisineType",
   );
+  const linkingInput: IngredientLinkingInput = {
+    ingredients: ingredients.map((ingredient, index) => ({
+      id: ingredient.id ?? `ingredient:${index}`,
+      originalText: ingredient.original,
+      name: ingredient.name,
+    })),
+    steps: stepResult.texts.map((instruction, index) => ({
+      id: stepResult.details?.[index]?.id ?? `step:${index}`,
+      instruction,
+    })),
+  };
+  const flow = parseIngredientLinkOutput(
+    { links: draft["ingredientLinks"] ?? draft["ingredient_links"] },
+    linkingInput,
+  );
 
   return {
     title,
@@ -101,6 +118,7 @@ export function normalizeRecipeDraft(
     ...(total_time_minutes === null ? {} : { total_time_minutes }),
     ...(parse_confidence === null ? {} : { parse_confidence }),
     ...(status === undefined ? {} : { status }),
+    ...(flow === null ? {} : { flow }),
   };
 }
 

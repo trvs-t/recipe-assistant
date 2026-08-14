@@ -24,9 +24,7 @@ import {
 import {
   type AiNormalizationAdapter,
   type ImportStage,
-  type IngredientLinkingAdapter,
   type IngredientLinkingIngredient,
-  type IngredientLinkingInput,
   type IngredientLinkingStep,
   type IngredientNormalizationAdapter,
   type NormalizedRecipe,
@@ -40,7 +38,6 @@ export interface ImportWorkerDependencies {
   readonly gateway: RecipeImportGateway;
   readonly source_fetcher: SourceFetcher;
   readonly ai_normalizer: AiNormalizationAdapter;
-  readonly ingredient_linker?: IngredientLinkingAdapter;
   readonly ingredient_normalizer?: IngredientNormalizationAdapter;
   readonly retry_delay_seconds?: (claim: ClaimedRecipeImport) => number;
 }
@@ -82,13 +79,13 @@ export async function processClaimedImport(
           retryable: false,
         });
       }
-      const normalizedIngredients = await dependencies.ingredient_normalizer
+      const normalizedResult = await dependencies.ingredient_normalizer
         .normalizeIngredients({ ingredients: source.ingredients });
 
       stage = "validate";
       await markStage(dependencies.gateway, claim, "validate");
       const ingredients: readonly CanonicalIngredientPayload[] =
-        mapToCanonicalIngredients(normalizedIngredients);
+        mapToCanonicalIngredients(normalizedResult.ingredients);
 
       stage = "persist";
       await markStage(dependencies.gateway, claim, "persist");
@@ -141,9 +138,8 @@ export async function processClaimedImport(
       recipe,
       claim.source_url,
     );
-    const payload: CanonicalRecipePayload = await enrichIngredientLinks(
+    const payload: CanonicalRecipePayload = enrichIngredientLinks(
       basePayload,
-      dependencies.ingredient_linker,
     );
 
     stage = "persist";
@@ -203,12 +199,23 @@ async function normalizeExtractedIngredients(
     return recipe;
   }
   try {
-    const ingredients = await normalizer.normalizeIngredients({
-      ingredients: recipe.ingredients.map((ingredient): string =>
-        ingredient.original
+    const steps: readonly IngredientLinkingStep[] = recipe.steps.map(
+      (instruction: string, index: number): IngredientLinkingStep => ({
+        id: recipe.step_details?.[index]?.id ?? `step:${index}`,
+        instruction,
+      }),
+    );
+    const result = await normalizer.normalizeIngredients({
+      ingredients: recipe.ingredients.map(
+        (ingredient): string => ingredient.original,
       ),
+      steps,
     });
-    return { ...recipe, ingredients };
+    return {
+      ...recipe,
+      ingredients: result.ingredients,
+      ...(result.flow === null ? {} : { flow: result.flow }),
+    };
   } catch (error) {
     console.warn(JSON.stringify({
       event: "ingredient_normalization_fallback",
@@ -220,10 +227,9 @@ async function normalizeExtractedIngredients(
   }
 }
 
-async function enrichIngredientLinks(
+function enrichIngredientLinks(
   payload: CanonicalRecipePayload,
-  ingredient_linker: IngredientLinkingAdapter | undefined,
-): Promise<CanonicalRecipePayload> {
+): CanonicalRecipePayload {
   if (hasLinksForEveryStep(payload.flow, payload.steps)) {
     return payload;
   }
@@ -252,37 +258,9 @@ async function enrichIngredientLinks(
     createDeterministicIngredientFlow({ ingredients, steps }),
     steps,
   );
-  if (
-    hasLinksForEveryStep(deterministicFlow, payload.steps) ||
-    ingredient_linker === undefined
-  ) {
-    return deterministicFlow === null
-      ? payload
-      : { ...payload, flow: deterministicFlow };
-  }
-
-  try {
-    const input: IngredientLinkingInput = deterministicFlow === null
-      ? { ingredients, steps }
-      : { ingredients, steps, deterministic_flow: deterministicFlow };
-    const modelFlow: RecipeFlow | null = await ingredient_linker.link(input);
-    const linkedFlow: RecipeFlow | null = mergeIngredientFlows(
-      deterministicFlow,
-      modelFlow,
-      steps,
-    );
-    return linkedFlow === null ? payload : { ...payload, flow: linkedFlow };
-  } catch (error) {
-    console.warn(JSON.stringify({
-      event: "ingredient_linking_fallback",
-      message: error instanceof Error
-        ? error.message
-        : "Ingredient linking failed",
-    }));
-    return deterministicFlow === null
-      ? payload
-      : { ...payload, flow: deterministicFlow };
-  }
+  return deterministicFlow === null
+    ? payload
+    : { ...payload, flow: deterministicFlow };
 }
 
 function hasLinksForEveryStep(

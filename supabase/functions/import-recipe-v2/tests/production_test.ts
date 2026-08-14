@@ -926,6 +926,11 @@ Deno.test("OpenRouter adapter requires strict structured output and validates th
           timerDurationMinutes: 10,
           sortOrder: 0,
         }],
+        ingredientLinks: [{
+          stepId: "ai-step",
+          ingredientIds: ["ai-ingredient"],
+          confidence: 0.96,
+        }],
         servings: 2,
         prepTimeMinutes: 5,
         cookTimeMinutes: 10,
@@ -960,6 +965,7 @@ Deno.test("OpenRouter adapter requires strict structured output and validates th
   assertEquals(draft.title, "AI Recipe");
   assertEquals(draft.step_details?.[0]?.id, "ai-step");
   assertEquals(draft.parse_confidence, 0.88);
+  assertDeepEquals(draft.flow?.nodes[0]?.ingredientIds, ["ai-ingredient"]);
 
   const provider: unknown = requestBody?.["provider"];
   const reasoning: unknown = requestBody?.["reasoning"];
@@ -981,6 +987,14 @@ Deno.test("OpenRouter adapter requires strict structured output and validates th
     ? response_format["json_schema"]
     : undefined;
   assertEquals(isRecord(json_schema) ? json_schema["strict"] : undefined, true);
+  const schema: unknown = isRecord(json_schema)
+    ? json_schema["schema"]
+    : undefined;
+  const required: unknown = isRecord(schema) ? schema["required"] : undefined;
+  assertEquals(
+    Array.isArray(required) && required.includes("ingredientLinks"),
+    true,
+  );
 });
 
 Deno.test("OpenRouter accepts a fenced JSON response after sanitizing model output", async () => {

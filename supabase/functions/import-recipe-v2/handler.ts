@@ -10,7 +10,6 @@ import {
 import {
   type AiNormalizationAdapter,
   type ImportStage,
-  type IngredientLinkingAdapter,
   type IngredientNormalizationAdapter,
   type SourceFetcher,
 } from "./types.ts";
@@ -35,7 +34,6 @@ export interface ImportHandlerDependencies {
   readonly gateway: RecipeImportGateway;
   readonly source_fetcher: SourceFetcher;
   readonly ai_normalizer: AiNormalizationAdapter;
-  readonly ingredient_linker?: IngredientLinkingAdapter;
   readonly ingredient_normalizer?: IngredientNormalizationAdapter;
   readonly worker_secret: string;
   readonly visibility_timeout_seconds?: number;
@@ -169,7 +167,6 @@ async function processNextQueuedImport(
     gateway: dependencies.gateway,
     source_fetcher: dependencies.source_fetcher,
     ai_normalizer: dependencies.ai_normalizer,
-    ingredient_linker: dependencies.ingredient_linker,
     ingredient_normalizer: dependencies.ingredient_normalizer,
     retry_delay_seconds: dependencies.retry_delay_seconds,
   });

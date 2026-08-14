@@ -7,7 +7,6 @@ import {
 import {
   type AiNormalizationAdapter,
   type ErrorCode,
-  type IngredientLinkingAdapter,
   type IngredientNormalizationAdapter,
   type NormalizedRecipeDraft,
   type SourceDocument,
@@ -236,14 +235,9 @@ Deno.test("normalizes text claims without calling the URL fetcher", async (): Pr
   assertEquals(gateway.normalizedContent, textRecipe);
 });
 
-Deno.test("ingredient-linking failures fall back without failing the import", async (): Promise<void> => {
+Deno.test("imports complete with inline and deterministic linking only", async (): Promise<void> => {
   const gateway: FakeGateway = new FakeGateway();
   const dependenciesForWorker = dependencies(gateway);
-  const ingredient_linker: IngredientLinkingAdapter = {
-    link(): Promise<null> {
-      return Promise.reject(new Error("linking service unavailable"));
-    },
-  };
   const claim: ClaimedRecipeImport = {
     message_id: 1,
     job_id: "job-1",
@@ -257,7 +251,6 @@ Deno.test("ingredient-linking failures fall back without failing the import", as
     gateway,
     source_fetcher: dependenciesForWorker.source_fetcher,
     ai_normalizer: dependenciesForWorker.ai_normalizer,
-    ingredient_linker,
   });
 
   assertEquals(result.status, "completed");
@@ -285,23 +278,44 @@ Deno.test("JSON-LD ingredients use focused normalization before persistence", as
   };
   const ingredient_normalizer: IngredientNormalizationAdapter = {
     normalizeIngredients(input) {
-      return Promise.resolve([{
-        original: input.ingredients[0] ?? "",
-        quantity: 228,
-        unit: "g",
-        name: "Butter",
-        notes: "softened",
-        measurements: [
-          { quantity_min: 228, quantity_max: 228, unit: "g", is_primary: true },
-          { quantity_min: 1, quantity_max: 1, unit: "cup", is_primary: false },
-          {
-            quantity_min: 2,
-            quantity_max: 2,
-            unit: "sticks",
-            is_primary: false,
-          },
-        ],
-      }]);
+      return Promise.resolve({
+        ingredients: [{
+          original: input.ingredients[0] ?? "",
+          quantity: 228,
+          unit: "g",
+          name: "Butter",
+          notes: "softened",
+          measurements: [
+            {
+              quantity_min: 228,
+              quantity_max: 228,
+              unit: "g",
+              is_primary: true,
+            },
+            {
+              quantity_min: 1,
+              quantity_max: 1,
+              unit: "cup",
+              is_primary: false,
+            },
+            {
+              quantity_min: 2,
+              quantity_max: 2,
+              unit: "sticks",
+              is_primary: false,
+            },
+          ],
+        }],
+        flow: {
+          derivation: "enriched",
+          nodes: [{
+            id: "node:step:0",
+            stepId: "step:0",
+            ingredientIds: ["ingredient:0"],
+          }],
+          edges: [],
+        },
+      });
     },
   };
   const claim: ClaimedRecipeImport = {
@@ -325,34 +339,49 @@ Deno.test("JSON-LD ingredients use focused normalization before persistence", as
     ingredients?: Array<{ measurements?: unknown[] }>;
   };
   assertEquals(persisted.ingredients?.[0]?.measurements?.length, 3);
+  const persistedFlow = gateway.persistedRecipe as {
+    flow?: { nodes?: Array<{ ingredientIds?: string[] }> };
+  };
+  assertEquals(
+    persistedFlow.flow?.nodes?.[0]?.ingredientIds?.[0],
+    "ingredient:0",
+  );
 });
 
 Deno.test("ingredient backfill reparses stored text and preserves the target recipe", async (): Promise<void> => {
   const gateway: FakeGateway = new FakeGateway();
   const ingredient_normalizer: IngredientNormalizationAdapter = {
     normalizeIngredients(input) {
-      return Promise.resolve([{
-        original: input.ingredients[0] ?? "",
-        quantity: 228,
-        unit: "gms",
-        name: "Butter",
-        notes: "softened",
-        measurements: [
-          {
-            quantity_min: 228,
-            quantity_max: 228,
-            unit: "gms",
-            is_primary: true,
-          },
-          { quantity_min: 1, quantity_max: 1, unit: "cup", is_primary: false },
-          {
-            quantity_min: 2,
-            quantity_max: 2,
-            unit: "sticks",
-            is_primary: false,
-          },
-        ],
-      }]);
+      return Promise.resolve({
+        ingredients: [{
+          original: input.ingredients[0] ?? "",
+          quantity: 228,
+          unit: "gms",
+          name: "Butter",
+          notes: "softened",
+          measurements: [
+            {
+              quantity_min: 228,
+              quantity_max: 228,
+              unit: "gms",
+              is_primary: true,
+            },
+            {
+              quantity_min: 1,
+              quantity_max: 1,
+              unit: "cup",
+              is_primary: false,
+            },
+            {
+              quantity_min: 2,
+              quantity_max: 2,
+              unit: "sticks",
+              is_primary: false,
+            },
+          ],
+        }],
+        flow: null,
+      });
     },
   };
   const claim: ClaimedRecipeImport = {

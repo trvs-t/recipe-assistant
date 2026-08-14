@@ -4,24 +4,25 @@ This function has two explicit POST actions:
 
 - `POST /functions/v1/import-recipe-v2` accepts a Supabase Auth bearer token and
   `{ "sourceUrl": "https://...", "idempotencyKey": "..." }`. It validates the
-  request, calls the URL-or-text enqueue RPC, and returns `202`; it never fetches or
-  parses the source inline.
+  request, calls the URL-or-text enqueue RPC, and returns `202`; it never
+  fetches or parses the source inline.
 - `POST /functions/v1/import-recipe-v2?action=worker` is for the durable worker.
   It requires `x-import-worker-secret: $IMPORT_WORKER_SECRET`, claims at most
   one queue message, processes one attempt, and returns `204` when the queue is
   empty or the attempt has been durably finalized.
 
-When a normalized recipe has no trustworthy ingredient links, the worker first
-applies deterministic text matching and then makes one bounded OpenRouter
-linking pass for unresolved references. Only known ingredient IDs and links at
-or above the confidence threshold are persisted; otherwise the linear flow
-fallback remains in place.
+Ingredient links are returned by the same OpenRouter pass that normalizes the
+recipe or its JSON-LD ingredients, so imports do not make a second model call.
+The worker merges validated links with deterministic text matches. Only known
+ingredient IDs and links at or above the confidence threshold are persisted;
+otherwise the linear flow fallback remains in place.
 
 Recipe JSON-LD remains the deterministic source for recipe structure. Its raw
-`recipeIngredient` strings receive one focused, non-blocking normalization pass
-that separates names, notes, ranges, and source-provided equivalent measures.
-The pass never calculates conversions. On failure, the worker persists the
-deterministically extracted ingredients instead of failing the import.
+`recipeIngredient` strings receive one focused, non-blocking normalization and
+linking pass that separates names, notes, ranges, source-provided equivalent
+measures, and step references. The pass never calculates conversions. On
+failure, the worker persists the deterministically extracted ingredients instead
+of failing the import.
 
 When Supabase `EdgeRuntime.waitUntil` is available, a newly queued submission
 also schedules one best-effort worker claim before returning `202`. This is a

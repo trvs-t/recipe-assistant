@@ -17,7 +17,6 @@ import {
 } from "./supabase-adapter.ts";
 import {
   type AiNormalizationAdapter,
-  type IngredientLinkingAdapter,
   type IngredientNormalizationAdapter,
   type SourceFetcher,
 } from "./types.ts";
@@ -45,7 +44,6 @@ export interface DefaultHandlerOptions {
   readonly gateway?: RecipeImportGateway;
   readonly source_fetcher?: SourceFetcher;
   readonly ai_normalizer?: AiNormalizationAdapter;
-  readonly ingredient_linker?: IngredientLinkingAdapter;
   readonly ingredient_normalizer?: IngredientNormalizationAdapter;
   readonly worker_secret?: string;
   readonly visibility_timeout_seconds?: number;
@@ -83,13 +81,10 @@ export function createDefaultHandler(
   if (ai_normalizer === undefined) {
     throw new Error("An AI normalization adapter is required");
   }
-  const ingredient_linker: IngredientLinkingAdapter | undefined =
-    options.ingredient_linker ?? default_openrouter_normalizer;
   const dependencies: ImportHandlerDependencies = {
     gateway,
     source_fetcher: options.source_fetcher ?? createSourceFetcher(),
     ai_normalizer,
-    ingredient_linker,
     ingredient_normalizer: options.ingredient_normalizer ??
       default_openrouter_normalizer,
     worker_secret,

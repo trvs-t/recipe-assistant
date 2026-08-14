@@ -11,6 +11,7 @@ import {
   type IngredientLinkingInput,
   type IngredientNormalizationAdapter,
   type IngredientNormalizationInput,
+  type IngredientNormalizationResult,
   type NormalizedRecipeDraft,
   type RecipeFlow,
   type RecipeIngredient,
@@ -140,7 +141,7 @@ export class OpenRouterNormalizer
 
   async normalizeIngredients(
     input: IngredientNormalizationInput,
-  ): Promise<readonly RecipeIngredient[]> {
+  ): Promise<IngredientNormalizationResult> {
     const response: Response = await this.requestIngredientNormalization(input);
     const responseText: string = await readResponseText(
       response,
@@ -169,7 +170,7 @@ export class OpenRouterNormalizer
         "OpenRouter changed or omitted source ingredients",
       );
     }
-    return ingredients.map(
+    const normalizedIngredients: readonly RecipeIngredient[] = ingredients.map(
       (ingredient: RecipeIngredient, index: number): RecipeIngredient => {
         const suppliedMeasurements = ingredient.measurements ?? [];
         const requestedPrimaryIndex: number = suppliedMeasurements.findIndex(
@@ -196,6 +197,21 @@ export class OpenRouterNormalizer
         };
       },
     );
+    const linkingInput: IngredientLinkingInput = {
+      ingredients: normalizedIngredients.map((ingredient, index) => ({
+        id: ingredient.id ?? `ingredient:${index}`,
+        originalText: ingredient.original,
+        name: ingredient.name,
+      })),
+      steps: input.steps ?? [],
+    };
+    return {
+      ingredients: normalizedIngredients,
+      flow: parseIngredientLinkOutput(
+        { links: isRecord(output) ? output["ingredientLinks"] : undefined },
+        linkingInput,
+      ),
+    };
   }
 
   private async normalizeOnce(
@@ -252,7 +268,7 @@ export class OpenRouterNormalizer
         {
           role: "system",
           content:
-            "Extract one recipe from the supplied source and return only JSON. Required top-level keys: title, description, ingredients, steps, servings, prepTimeMinutes, cookTimeMinutes, totalTimeMinutes, images, cuisineType, dietaryTags, parseConfidence, status. Each ingredient requires id, originalText, quantity, unit, name, notes, measurements, sortOrder. Preserve every explicitly supplied equivalent measurement and range; never calculate conversions. quantity and unit mirror the first primary measurement. Each step requires id, instruction, timerDurationMinutes, sortOrder. Do not invent ingredients or steps. Every explicit ingredient quantity must be greater than zero; use null only when the source truly omits a quantity. Use null when another scalar is unavailable.",
+            "Extract one recipe from the supplied source and return only JSON. Required top-level keys: title, description, ingredients, steps, ingredientLinks, servings, prepTimeMinutes, cookTimeMinutes, totalTimeMinutes, images, cuisineType, dietaryTags, parseConfidence, status. Each ingredient requires id, originalText, quantity, unit, name, notes, measurements, sortOrder. Preserve every explicitly supplied equivalent measurement and range; never calculate conversions. quantity and unit mirror the first primary measurement. Each step requires id, instruction, timerDurationMinutes, sortOrder. ingredientLinks links each step to the ingredient IDs it explicitly uses; never create IDs or infer a missing ingredient, and use confidence from 0 to 1. Do not invent ingredients or steps. Every explicit ingredient quantity must be greater than zero; use null only when the source truly omits a quantity. Use null when another scalar is unavailable.",
         },
         {
           role: "user",
@@ -440,18 +456,22 @@ export class OpenRouterNormalizer
         {
           role: "system",
           content: [
-            "Normalize recipe ingredient strings and return only JSON.",
+            "Normalize recipe ingredient strings and link them to recipe steps. Return only JSON.",
             "Preserve originalText exactly and preserve input order.",
             "Separate the ingredient name, preparation notes, and every explicitly supplied measurement.",
             "Equivalent measures such as 228 g (1 cup or 2 sticks) are separate measurements of one ingredient.",
             "Represent ranges with quantityMin and quantityMax; do not average them.",
             "Never calculate conversions or invent quantities, units, ingredients, or notes.",
             "Use the first source measurement as primary. quantity and unit must mirror its quantityMin and unit.",
+            "ingredientLinks links each supplied step to the ingredient IDs it explicitly uses. Never create IDs, infer missing ingredients, or link below 0.7 confidence. Return an empty ingredientLinks array when no steps are supplied.",
           ].join(" "),
         },
         {
           role: "user",
-          content: JSON.stringify({ ingredients: input.ingredients }),
+          content: JSON.stringify({
+            ingredients: input.ingredients,
+            steps: input.steps ?? [],
+          }),
         },
       ],
     };
@@ -546,6 +566,7 @@ export const RECIPE_NORMALIZATION_SCHEMA: Readonly<Record<string, unknown>> = {
     "description",
     "ingredients",
     "steps",
+    "ingredientLinks",
     "servings",
     "prepTimeMinutes",
     "cookTimeMinutes",
@@ -605,6 +626,7 @@ export const RECIPE_NORMALIZATION_SCHEMA: Readonly<Record<string, unknown>> = {
         },
       },
     },
+    ingredientLinks: ingredientLinksSchema(),
     servings: { type: ["integer", "null"], exclusiveMinimum: 0 },
     prepTimeMinutes: { type: ["integer", "null"], minimum: 0 },
     cookTimeMinutes: { type: ["integer", "null"], minimum: 0 },
@@ -635,7 +657,7 @@ export const INGREDIENT_NORMALIZATION_SCHEMA: Readonly<
 > = {
   type: "object",
   additionalProperties: false,
-  required: ["ingredients"],
+  required: ["ingredients", "ingredientLinks"],
   properties: {
     ingredients: {
       type: "array",
@@ -665,6 +687,7 @@ export const INGREDIENT_NORMALIZATION_SCHEMA: Readonly<
         },
       },
     },
+    ingredientLinks: ingredientLinksSchema(),
   },
 };
 
@@ -690,24 +713,28 @@ export const INGREDIENT_LINKING_SCHEMA: Readonly<Record<string, unknown>> = {
   additionalProperties: false,
   required: ["links"],
   properties: {
-    links: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["stepId", "ingredientIds", "confidence"],
-        properties: {
-          stepId: { type: "string", minLength: 1 },
-          ingredientIds: {
-            type: "array",
-            items: { type: "string", minLength: 1 },
-          },
-          confidence: { type: "number", minimum: 0, maximum: 1 },
-        },
-      },
-    },
+    links: ingredientLinksSchema(),
   },
 };
+
+function ingredientLinksSchema(): Readonly<Record<string, unknown>> {
+  return {
+    type: "array",
+    items: {
+      type: "object",
+      additionalProperties: false,
+      required: ["stepId", "ingredientIds", "confidence"],
+      properties: {
+        stepId: { type: "string", minLength: 1 },
+        ingredientIds: {
+          type: "array",
+          items: { type: "string", minLength: 1 },
+        },
+        confidence: { type: "number", minimum: 0, maximum: 1 },
+      },
+    },
+  };
+}
 
 async function fetchWithTimeout(
   transport: OpenRouterTransport,

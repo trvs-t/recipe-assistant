@@ -195,12 +195,18 @@ export interface AiNormalizationAdapter {
 
 export interface IngredientNormalizationInput {
   readonly ingredients: readonly string[];
+  readonly steps?: readonly IngredientLinkingStep[];
+}
+
+export interface IngredientNormalizationResult {
+  readonly ingredients: readonly RecipeIngredient[];
+  readonly flow: RecipeFlow | null;
 }
 
 export interface IngredientNormalizationAdapter {
   normalizeIngredients(
     input: IngredientNormalizationInput,
-  ): Promise<readonly RecipeIngredient[]>;
+  ): Promise<IngredientNormalizationResult>;
 }
 
 export interface ImportJobState {
