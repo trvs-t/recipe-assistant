@@ -26,9 +26,8 @@ npm run build
 The TanStack Router Vite plugin keeps the file-based route tree in sync during Vite commands. Routes currently include:
 
 - `/` — recipe library
-- `/import` — URL submission and import pipeline preview
-- `/import/$submissionId` — import progress/status
-- `/recipes/$recipeId` — recipe detail, portion scaling, source link, and cooking flow
+- `/import` — legacy redirect to the library import form
+- `/recipes/$recipeId` — recipe detail, portion scaling, source link, and guided cooking
 
 ## Environment
 

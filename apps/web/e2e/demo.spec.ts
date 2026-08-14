@@ -68,9 +68,8 @@ test('recipe detail keeps source traceability, synchronizes amounts, edits inlin
   await expect(page.getByRole('menuitemradio', { name: 'firm tofu' })).toBeVisible();
   await page.keyboard.press('Escape');
 
-  await expect(page.getByRole('heading', { name: 'Recipe as a flow' })).toBeVisible();
-  await expect(page.locator('.react-flow__node')).toHaveCount(4);
-  await expect(page.locator('summary').filter({ hasText: 'Step-by-step recipe summary' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Recipe as a flow' })).toHaveCount(0);
+  await expect(page.locator('.react-flow')).toHaveCount(0);
 
   await page.getByRole('link', { name: 'Start cooking' }).click();
   await expect(page).toHaveURL(/\/recipes\/demo-miso-salmon\/cook\?servings=4$/);
@@ -96,7 +95,7 @@ test('recipe detail keeps source traceability, synchronizes amounts, edits inlin
   await expect(cookingDialog).toHaveCount(0);
 });
 
-test('demo import appears in the library immediately and retains a durable progress link', async ({
+test('demo import appears in the library immediately without exposing import progress', async ({
   page,
 }: {
   page: Page;
@@ -110,15 +109,11 @@ test('demo import appears in the library immediately and retains a durable progr
   await expect(page.getByRole('heading', { name: 'Importing from justonecookbook.com' })).toBeVisible();
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Importing from justonecookbook.com' })).toBeVisible();
-  await page.getByRole('link', { name: 'View progress' }).click();
-  await expect(page).toHaveURL(/\/import\/demo-import-\d+-\d+$/);
-  await expect(page.getByText('Import in progress')).toBeVisible();
-  await expect(
-    page.getByRole('link', { name: 'https://www.justonecookbook.com/miso-salmon/' }),
-  ).toHaveAttribute('href', 'https://www.justonecookbook.com/miso-salmon/');
+  await expect(page.getByRole('link', { name: 'View progress' })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/$/);
 });
 
-test('bulk import queues each unique pasted URL and links to every status page', async ({
+test('bulk import queues each unique pasted URL as an in-progress library item', async ({
   page,
 }: {
   page: Page;
@@ -141,7 +136,7 @@ test('bulk import queues each unique pasted URL and links to every status page',
 
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole('heading', { name: 'Importing from example.com' })).toHaveCount(2);
-  await expect(page.getByRole('link', { name: 'View progress' })).toHaveCount(2);
+  await expect(page.getByRole('link', { name: 'View progress' })).toHaveCount(0);
 });
 
 test('mobile library stays within the viewport and exposes navigation', async ({

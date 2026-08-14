@@ -1,7 +1,7 @@
 # Recipe Assistant
 
 A web-first recipe collector for reliable URL imports, portion adjustment, and
-recipe-as-flow visualization. The React application in `apps/web` is now the
+guided cooking. The React application in `apps/web` is now the
 primary product surface; the Flutter application in `app` remains as legacy
 reference during the selective restart.
 
@@ -10,7 +10,6 @@ reference during the selective restart.
 - **Save from URL** - Paste any recipe link and have it parsed automatically
 - **AI-Powered Parsing** - Extracts ingredients, steps, and timings using OpenAI
 - **Serving Size Scaling** - Adjust recipes for more or fewer servings
-- **Recipe Flow** - Visualize ordered and parallel cooking steps as a directed graph
 - **Source Traceability** - Keep and open the original recipe URL
 - **Voice-Guided Cooking** - Navigate steps hands-free with voice commands
 - **Offline Support** - Recipes sync and work without internet
@@ -26,7 +25,6 @@ reference during the selective restart.
 | TanStack Router | Typed file-based routing |
 | TanStack Query | Server-state fetching and import polling |
 | Tailwind + shadcn/ui | Styling and components |
-| React Flow + Dagre | Recipe flow visualization and layout |
 | Flutter + Riverpod | Legacy reference application |
 
 ### Backend

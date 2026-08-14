@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type ReactElement } from 'react';
 
-import { ArrowRight, BookOpen, CircleAlert, Clock3, Link2, LoaderCircle, Search } from 'lucide-react';
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { ArrowRight, BookOpen, CircleAlert, Link2, LoaderCircle, Search } from 'lucide-react';
+import { createFileRoute } from '@tanstack/react-router';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 
 import { RecipeCard } from '@/components/recipes/recipe-card';
 import { FolderSidebar } from '@/components/recipes/folder-sidebar';
 import { Badge } from '@/components/ui/badge';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -412,18 +412,11 @@ function ImportingRecipeCard({ item }: { item: ILibraryImport }): ReactElement {
         <p className="mt-2 truncate text-sm text-[var(--muted-foreground)]">
           {item.sourceUrl ?? item.sourceText ?? 'Pasted recipe text'}
         </p>
-        <div className="mt-auto pt-6">
-          {item.submissionId !== null ? (
-            <Link className={buttonVariants({ size: 'sm', variant: 'outline' })} params={{ submissionId: item.submissionId }} to="/import/$submissionId">
-              <Clock3 size={15} />
-              View progress
-            </Link>
-          ) : (
-            <p className={`text-sm ${failed ? 'text-[var(--destructive)]' : 'text-[var(--muted-foreground)]'}`}>
-              {item.message ?? 'Creating the import job…'}
-            </p>
-          )}
-        </div>
+        {item.submissionId === null ? (
+          <p className={`mt-auto pt-6 text-sm ${failed ? 'text-[var(--destructive)]' : 'text-[var(--muted-foreground)]'}`}>
+            {item.message ?? 'Creating the import job…'}
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );
