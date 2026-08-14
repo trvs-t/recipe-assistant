@@ -70,6 +70,8 @@ test('recipe detail keeps source traceability, synchronizes amounts, edits inlin
 
   await expect(page.getByRole('heading', { name: 'Recipe as a flow' })).toHaveCount(0);
   await expect(page.locator('.react-flow')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Instructions' })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Ordered recipe steps' }).getByRole('listitem')).toHaveCount(4);
 
   await page.getByRole('link', { name: 'Start cooking' }).click();
   await expect(page).toHaveURL(/\/recipes\/demo-miso-salmon\/cook\?servings=4$/);

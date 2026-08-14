@@ -6,6 +6,7 @@ import { createFileRoute, Link, Outlet } from '@tanstack/react-router';
 import { IngredientEditor } from '@/components/recipes/ingredient-editor';
 import { IngredientLinkRepair } from '@/components/recipes/ingredient-link-repair';
 import { RecipeFolderPicker } from '@/components/recipes/recipe-folder-picker';
+import { RecipeInstructions } from '@/components/recipes/recipe-instructions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -119,8 +120,9 @@ function RecipeDetailPage(): ReactElement {
           <RecipeFolderPicker recipe={recipe} />
         </aside>
 
-        <section className="min-w-0 lg:col-start-1 lg:row-start-2">
+        <section className="min-w-0 space-y-4 lg:col-start-1 lg:row-start-2">
           <IngredientLinkRepair recipe={recipe} />
+          <RecipeInstructions steps={recipe.steps} />
         </section>
       </div>
       <Outlet />
@@ -130,11 +132,45 @@ function RecipeDetailPage(): ReactElement {
 
 function RecipeDetailLoading(): ReactElement {
   return (
-    <div className="space-y-8">
-      <Card className="h-80 animate-pulse bg-[var(--muted)]" />
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="h-96 animate-pulse bg-[var(--muted)]" />
-        <Card className="h-96 animate-pulse bg-[var(--muted)]" />
+    <div aria-label="Loading recipe" className="space-y-10">
+      <div className="h-5 w-32 animate-pulse rounded-md bg-[var(--muted)]" />
+      <div className="grid items-start gap-x-8 gap-y-10 lg:grid-cols-[minmax(0,1fr)_minmax(21rem,0.65fr)]">
+        <section className="min-w-0 lg:col-start-1 lg:row-start-1">
+          <div className="max-w-3xl animate-pulse">
+            <div className="flex gap-2">
+              <div className="h-6 w-24 rounded-full bg-[var(--muted)]" />
+              <div className="h-6 w-20 rounded-full bg-[var(--muted)]" />
+            </div>
+            <div className="mt-5 h-14 w-4/5 rounded-xl bg-[var(--muted)] sm:h-16" />
+            <div className="mt-5 h-5 w-full rounded-md bg-[var(--muted)]" />
+            <div className="mt-2 h-5 w-3/4 rounded-md bg-[var(--muted)]" />
+            <div className="mt-6 h-5 w-72 max-w-full rounded-md bg-[var(--muted)]" />
+            <div className="mt-7 h-11 w-40 rounded-lg bg-[var(--muted)]" />
+          </div>
+        </section>
+
+        <aside className="min-w-0 space-y-6 lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:max-h-[calc(100vh-7.5rem)] lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:pr-1">
+          <Card className="h-[34rem] animate-pulse bg-[var(--muted)]" />
+          <Card className="h-40 animate-pulse bg-[var(--muted)]" />
+        </aside>
+
+        <section className="min-w-0 lg:col-start-1 lg:row-start-2">
+          <Card className="overflow-hidden">
+            <div className="h-20 animate-pulse border-b border-[var(--border)] bg-[var(--muted)]" />
+            <div className="space-y-5 p-5 sm:p-6">
+              {[1, 2, 3].map((step: number): ReactElement => (
+                <div className="flex gap-4" key={step}>
+                  <div className="h-6 w-6 shrink-0 animate-pulse rounded-full bg-[var(--muted)]" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 w-1/3 animate-pulse rounded bg-[var(--muted)]" />
+                    <div className="h-4 w-full animate-pulse rounded bg-[var(--muted)]" />
+                    <div className="h-4 w-4/5 animate-pulse rounded bg-[var(--muted)]" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </section>
       </div>
     </div>
   );
