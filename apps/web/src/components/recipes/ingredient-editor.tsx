@@ -32,7 +32,7 @@ import {
   variationToFormValues,
   type IIngredientFormValues,
 } from '@/features/recipes/ingredient-editing';
-import { formatMeasurement, scaleQuantityByFactor } from '@/features/recipes/scaling';
+import { scaleQuantityByFactor } from '@/features/recipes/scaling';
 import { supabaseAdapter, type IIngredientVariationInput } from '@/lib/supabase';
 
 import type { IIngredientEditInput, IRecipe, IRecipeIngredient } from '@/features/recipes/contracts';
@@ -97,7 +97,7 @@ export function IngredientEditor({ onScaleFactorChange, recipe }: IIngredientEdi
   const [servingsInput, setServingsInput] = useState<string>(() => formatInputNumber(recipe.servings));
   const [activeAmount, setActiveAmount] = useState<{ ingredientId: string; value: string } | null>(null);
   const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  const nameInputs = useRef<Map<string, HTMLInputElement>>(new Map());
+  const nameInputs = useRef<Map<string, HTMLTextAreaElement>>(new Map());
 
   const updateMutation = useMutation<void, Error, IUpdateIngredientVariables>({
     mutationFn: (variables: IUpdateIngredientVariables): Promise<void> =>
@@ -147,7 +147,7 @@ export function IngredientEditor({ onScaleFactorChange, recipe }: IIngredientEdi
     if (pendingVariation !== null && allIngredientIds.has(pendingVariation.ingredientId)) {
       setPendingVariation(null);
       window.setTimeout((): void => {
-        const nameInput: HTMLInputElement | undefined = nameInputs.current.get(pendingVariation.ingredientId);
+        const nameInput: HTMLTextAreaElement | undefined = nameInputs.current.get(pendingVariation.ingredientId);
         nameInput?.focus();
         nameInput?.select();
       }, 0);
@@ -333,68 +333,66 @@ export function IngredientEditor({ onScaleFactorChange, recipe }: IIngredientEdi
             const amountValue: string = activeAmount?.ingredientId === ingredient.id
               ? activeAmount.value
               : scaledQuantity === null ? '' : formatInputNumber(scaledQuantity);
-            const isActiveAnchor: boolean = activeAmount?.ingredientId === ingredient.id;
             const variantCount: number = group.options.length - 1;
             const savedField: TEditableIngredientField | null = savedIndicator?.ingredientId === ingredient.id
               ? savedIndicator.field
               : null;
 
             return (
-              <div className={`relative grid grid-cols-[2rem_minmax(0,1fr)_minmax(7rem,0.48fr)] gap-x-1 px-1.5 py-2 transition-colors sm:px-2 ${isActiveAnchor ? 'bg-[var(--primary-soft)]' : ''}`} key={group.source.id}>
-                <div className="relative">
-                  {variantCount > 0 ? (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button aria-label={`Edit variants for ${group.source.name}`} className="relative h-8 w-8 overflow-visible rounded-lg" disabled={variationMutation.isPending} size="icon" variant="ghost">
-                          <GitFork size={15} />
-                          <span aria-label={`${variantCount} ${variantCount === 1 ? 'variant' : 'variants'} for ${group.source.name}`} className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--primary)] px-1 text-[10px] font-bold leading-none text-white">
-                            {variantCount}
-                          </span>
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start">
-                        <DropdownMenuLabel>Choose variant</DropdownMenuLabel>
-                        <DropdownMenuRadioGroup value={ingredient.id}>
-                          {group.options.map((option: IRecipeIngredient): ReactElement => (
-                            <DropdownMenuRadioItem key={option.id} onSelect={(): void => selectOption(group, option)} value={option.id}>
-                              {drafts[option.id]?.name ?? option.name}
-                            </DropdownMenuRadioItem>
-                          ))}
-                        </DropdownMenuRadioGroup>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="font-medium text-[var(--primary)]" onSelect={(): void => addVariation(group.source)}>
-                          <Plus size={14} />
-                          Add variant
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  ) : (
-                    <Button aria-label={`Add variant for ${group.source.name}`} className="h-8 w-8 rounded-lg" disabled={variationMutation.isPending} onClick={(): void => addVariation(group.source)} size="icon" variant="ghost">
-                      <Plus size={15} />
-                    </Button>
-                  )}
-                </div>
+              <div className="relative grid grid-cols-[1.75rem_minmax(0,1fr)_minmax(7rem,0.48fr)] items-end gap-x-1 px-1 pb-1 pt-2" key={group.source.id}>
+                {variantCount > 0 ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button aria-label={`Edit variants for ${group.source.name}`} className="relative h-7 w-7 overflow-visible rounded-lg" disabled={variationMutation.isPending} size="icon" variant="ghost">
+                        <GitFork size={15} />
+                        <span aria-label={`${variantCount} ${variantCount === 1 ? 'variant' : 'variants'} for ${group.source.name}`} className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--primary)] px-1 text-[10px] font-bold leading-none text-white">
+                          {variantCount}
+                        </span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuLabel>Choose variant</DropdownMenuLabel>
+                      <DropdownMenuRadioGroup value={ingredient.id}>
+                        {group.options.map((option: IRecipeIngredient): ReactElement => (
+                          <DropdownMenuRadioItem key={option.id} onSelect={(): void => selectOption(group, option)} value={option.id}>
+                            {drafts[option.id]?.name ?? option.name}
+                          </DropdownMenuRadioItem>
+                        ))}
+                      </DropdownMenuRadioGroup>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem className="font-medium text-[var(--primary)]" onSelect={(): void => addVariation(group.source)}>
+                        <Plus size={14} />
+                        Add variant
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : (
+                  <Button aria-label={`Add variant for ${group.source.name}`} className="h-7 w-7 rounded-lg" disabled={variationMutation.isPending} onClick={(): void => addVariation(group.source)} size="icon" variant="ghost">
+                    <Plus size={15} />
+                  </Button>
+                )}
 
                 <div className="relative min-w-0">
-                  <input
+                  <textarea
                     aria-label={`Name for ${ingredient.name}`}
-                    className="h-8 w-full min-w-0 bg-transparent px-0 pr-12 text-sm font-medium outline-none"
+                    className="min-h-7 w-full min-w-0 resize-none overflow-hidden bg-transparent pb-0 pl-0 pr-12 pt-2 text-sm font-medium leading-5 outline-none [field-sizing:content]"
                     onBlur={(): void => commitIngredient(ingredient, 'name')}
-                    onChange={(event: ChangeEvent<HTMLInputElement>): void => updateDraft(ingredient, 'name', event.target.value)}
+                    onChange={(event: ChangeEvent<HTMLTextAreaElement>): void => updateDraft(ingredient, 'name', event.target.value)}
                     onKeyDown={handleEditableKeyDown}
-                    ref={(element: HTMLInputElement | null): void => {
+                    ref={(element: HTMLTextAreaElement | null): void => {
                       if (element === null) nameInputs.current.delete(ingredient.id);
                       else nameInputs.current.set(ingredient.id, element);
                     }}
+                    rows={1}
                     value={draft.name}
                   />
                   {savedField === 'name' ? <SavedTag ingredientName={draft.name.trim() || ingredient.name} /> : null}
                 </div>
 
-                <div className="flex min-w-0 items-center justify-end gap-1">
+                <div className="flex min-w-0 items-baseline justify-end gap-1">
                   <input
                     aria-label={`Amount for ${ingredient.name}`}
-                    className="h-8 min-w-0 flex-1 bg-transparent px-0 text-right text-xl font-bold leading-none outline-none"
+                    className="h-7 min-w-0 flex-1 bg-transparent px-0 text-right text-xl font-bold leading-5 outline-none"
                     disabled={!isScalable(ingredient)}
                     min="0"
                     onBlur={(event: FocusEvent<HTMLInputElement>): void => handleAmountBlur(ingredient, event)}
@@ -410,7 +408,7 @@ export function IngredientEditor({ onScaleFactorChange, recipe }: IIngredientEdi
                   <div className="relative w-14">
                     <input
                       aria-label={`Unit for ${ingredient.name}`}
-                      className="h-8 w-full bg-transparent px-0 text-xs text-[var(--muted-foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
+                      className="h-7 w-full bg-transparent px-0 text-xs leading-5 text-[var(--muted-foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
                       onBlur={(): void => commitIngredient(ingredient, 'unit')}
                       onChange={(event: ChangeEvent<HTMLInputElement>): void => updateDraft(ingredient, 'unit', event.target.value)}
                       onKeyDown={handleEditableKeyDown}
@@ -424,24 +422,16 @@ export function IngredientEditor({ onScaleFactorChange, recipe }: IIngredientEdi
                 <div className="relative col-span-2 col-start-2 min-w-0">
                   <textarea
                     aria-label={`Notes for ${ingredient.name}`}
-                    className="min-h-7 w-full resize-none overflow-y-auto border-0 bg-transparent px-0 pr-12 py-1 text-xs leading-5 text-[var(--muted-foreground)] shadow-none outline-none focus-visible:border-0 focus-visible:ring-0"
+                    className="min-h-6 w-full resize-none overflow-hidden border-0 bg-transparent px-0 pr-12 py-0.5 text-xs leading-5 text-[var(--muted-foreground)] shadow-none outline-none [field-sizing:content] focus-visible:border-0 focus-visible:ring-0"
                     onBlur={(): void => commitIngredient(ingredient, 'note')}
                     onChange={(event: ChangeEvent<HTMLTextAreaElement>): void => updateDraft(ingredient, 'note', event.target.value)}
                     onKeyDown={handleEditableKeyDown}
                     placeholder="Add a note"
-                    rows={2}
+                    rows={1}
                     value={draft.note}
                   />
                   {savedField === 'note' ? <SavedTag ingredientName={draft.name.trim() || ingredient.name} /> : null}
                 </div>
-                {(ingredient.measurements ?? []).some((measurement): boolean => !measurement.isPrimary) ? (
-                  <p className="col-span-2 col-start-2 text-xs text-[var(--muted-foreground)]">
-                    Also {(ingredient.measurements ?? [])
-                      .filter((measurement): boolean => !measurement.isPrimary)
-                      .map((measurement): string => formatMeasurement(measurement, scaleFactor))
-                      .join(' / ')}
-                  </p>
-                ) : null}
                 {formErrors[ingredient.id] !== undefined ? (
                   <p className="col-span-2 col-start-2 mt-1 text-sm text-[var(--destructive)]">{formErrors[ingredient.id]}</p>
                 ) : null}

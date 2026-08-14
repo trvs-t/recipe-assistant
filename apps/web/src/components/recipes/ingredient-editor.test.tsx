@@ -57,6 +57,63 @@ describe('IngredientEditor', (): void => {
     expect(screen.queryByRole('button', { name: /save changes/i })).not.toBeInTheDocument();
   });
 
+  it('uses compact wrapping fields for ingredient names and notes', (): void => {
+    renderEditor(recipe);
+
+    const nameField: HTMLElement = screen.getByLabelText('Name for eggs');
+    const notesField: HTMLElement = screen.getByLabelText('Notes for eggs');
+
+    expect(nameField.tagName).toBe('TEXTAREA');
+    expect(notesField.tagName).toBe('TEXTAREA');
+    expect(nameField).toHaveAttribute('rows', '1');
+    expect(notesField).toHaveAttribute('rows', '1');
+  });
+
+  it('baseline-aligns the first row while bottom-aligning it as a whole', (): void => {
+    renderEditor(recipe);
+
+    const amountField: HTMLElement = screen.getByLabelText('Amount for eggs');
+    const ingredientRow: HTMLElement | null = amountField.parentElement?.parentElement ?? null;
+
+    expect(ingredientRow).toHaveClass('items-end', 'px-1', 'pb-1', 'pt-2');
+    expect(screen.getByLabelText('Name for eggs')).toHaveClass('min-h-7', 'pb-0', 'pt-2', 'leading-5');
+    expect(amountField).toHaveClass('h-7', 'leading-5');
+    expect(amountField.parentElement).toHaveClass('items-baseline');
+    expect(amountField.parentElement).not.toHaveClass('-translate-y-1');
+    expect(screen.getByRole('button', { name: 'Add variant for eggs' }).parentElement).toBe(ingredientRow);
+    expect(screen.getByLabelText('Notes for eggs')).toHaveClass('py-0.5');
+  });
+
+  it('hides alternative amounts', (): void => {
+    const recipeWithAlternativeAmounts: IRecipe = {
+      ...recipe,
+      ingredients: [
+        {
+          ...recipe.ingredients[0],
+          measurements: [
+            { id: 'measurement-primary', quantityMin: 2, quantityMax: 2, unit: null, isPrimary: true, sortOrder: 0 },
+            { id: 'measurement-alternative', quantityMin: 100, quantityMax: 100, unit: 'g', isPrimary: false, sortOrder: 1 },
+          ],
+        },
+        recipe.ingredients[1],
+      ],
+    };
+    renderEditor(recipeWithAlternativeAmounts);
+
+    expect(screen.queryByRole('button', { name: 'Alternative amounts for eggs' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Also 100 g')).not.toBeInTheDocument();
+  });
+
+  it('does not shade the active ingredient row', async (): Promise<void> => {
+    const user = userEvent.setup();
+    renderEditor(recipe);
+
+    const amountInput: HTMLElement = screen.getByLabelText('Amount for eggs');
+    await user.click(amountInput);
+
+    expect(amountInput.parentElement?.parentElement).not.toHaveClass('bg-[var(--primary-soft)]');
+  });
+
   it('keeps portions and every amount synchronized with the actively edited ingredient', async (): Promise<void> => {
     const user = userEvent.setup();
     renderEditor(recipe);
