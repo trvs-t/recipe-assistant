@@ -121,8 +121,8 @@ function RecipeDetailPage(): ReactElement {
         </aside>
 
         <section className="min-w-0 space-y-4 lg:col-start-1 lg:row-start-2">
-          <IngredientLinkRepair recipe={recipe} />
           <RecipeInstructions steps={recipe.steps} />
+          <IngredientLinkRepair recipe={recipe} />
         </section>
       </div>
       <Outlet />
@@ -154,7 +154,7 @@ function RecipeDetailLoading(): ReactElement {
           <Card className="h-40 animate-pulse bg-[var(--muted)]" />
         </aside>
 
-        <section className="min-w-0 lg:col-start-1 lg:row-start-2">
+        <section className="min-w-0 space-y-4 lg:col-start-1 lg:row-start-2">
           <Card className="overflow-hidden">
             <div className="h-20 animate-pulse border-b border-[var(--border)] bg-[var(--muted)]" />
             <div className="space-y-5 p-5 sm:p-6">
@@ -170,6 +170,7 @@ function RecipeDetailLoading(): ReactElement {
               ))}
             </div>
           </Card>
+          <div className="h-24 animate-pulse rounded-xl border border-[var(--border)] bg-[var(--muted)]" />
         </section>
       </div>
     </div>

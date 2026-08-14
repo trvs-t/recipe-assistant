@@ -215,7 +215,7 @@ export function IngredientEditor({ onScaleFactorChange, recipe }: IIngredientEdi
     );
   };
 
-  const handleEditableKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+  const handleEditableKeyDown = (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>): void => {
     if (event.key === 'Enter') {
       event.preventDefault();
       event.currentTarget.blur();
@@ -340,7 +340,7 @@ export function IngredientEditor({ onScaleFactorChange, recipe }: IIngredientEdi
               : null;
 
             return (
-              <div className={`relative grid grid-cols-[2rem_minmax(0,1fr)_minmax(8.5rem,0.58fr)] gap-x-1.5 px-2.5 py-2 transition-colors sm:px-3 ${isActiveAnchor ? 'bg-[var(--primary-soft)]' : ''}`} key={group.source.id}>
+              <div className={`relative grid grid-cols-[2rem_minmax(0,1fr)_minmax(7rem,0.48fr)] gap-x-1 px-1.5 py-2 transition-colors sm:px-2 ${isActiveAnchor ? 'bg-[var(--primary-soft)]' : ''}`} key={group.source.id}>
                 <div className="relative">
                   {variantCount > 0 ? (
                     <DropdownMenu>
@@ -378,7 +378,7 @@ export function IngredientEditor({ onScaleFactorChange, recipe }: IIngredientEdi
                 <div className="relative min-w-0">
                   <input
                     aria-label={`Name for ${ingredient.name}`}
-                    className="h-8 w-full min-w-0 bg-transparent px-1.5 pr-14 text-sm font-medium outline-none"
+                    className="h-8 w-full min-w-0 bg-transparent px-0 pr-12 text-sm font-medium outline-none"
                     onBlur={(): void => commitIngredient(ingredient, 'name')}
                     onChange={(event: ChangeEvent<HTMLInputElement>): void => updateDraft(ingredient, 'name', event.target.value)}
                     onKeyDown={handleEditableKeyDown}
@@ -394,7 +394,7 @@ export function IngredientEditor({ onScaleFactorChange, recipe }: IIngredientEdi
                 <div className="flex min-w-0 items-center justify-end gap-1">
                   <input
                     aria-label={`Amount for ${ingredient.name}`}
-                    className="h-8 min-w-0 flex-1 bg-transparent px-1 text-right text-xl font-bold leading-none outline-none"
+                    className="h-8 min-w-0 flex-1 bg-transparent px-0 text-right text-xl font-bold leading-none outline-none"
                     disabled={!isScalable(ingredient)}
                     min="0"
                     onBlur={(event: FocusEvent<HTMLInputElement>): void => handleAmountBlur(ingredient, event)}
@@ -410,7 +410,7 @@ export function IngredientEditor({ onScaleFactorChange, recipe }: IIngredientEdi
                   <div className="relative w-14">
                     <input
                       aria-label={`Unit for ${ingredient.name}`}
-                      className="h-8 w-full bg-transparent px-1 text-xs text-[var(--muted-foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
+                      className="h-8 w-full bg-transparent px-0 text-xs text-[var(--muted-foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
                       onBlur={(): void => commitIngredient(ingredient, 'unit')}
                       onChange={(event: ChangeEvent<HTMLInputElement>): void => updateDraft(ingredient, 'unit', event.target.value)}
                       onKeyDown={handleEditableKeyDown}
@@ -422,19 +422,20 @@ export function IngredientEditor({ onScaleFactorChange, recipe }: IIngredientEdi
                 </div>
 
                 <div className="relative col-span-2 col-start-2 min-w-0">
-                  <Input
+                  <textarea
                     aria-label={`Notes for ${ingredient.name}`}
-                    className="h-7 w-full border-0 bg-transparent px-1.5 pr-14 py-0 text-xs text-[var(--muted-foreground)] shadow-none outline-none focus-visible:border-0 focus-visible:ring-0"
+                    className="min-h-7 w-full resize-none overflow-y-auto border-0 bg-transparent px-0 pr-12 py-1 text-xs leading-5 text-[var(--muted-foreground)] shadow-none outline-none focus-visible:border-0 focus-visible:ring-0"
                     onBlur={(): void => commitIngredient(ingredient, 'note')}
-                    onChange={(event: ChangeEvent<HTMLInputElement>): void => updateDraft(ingredient, 'note', event.target.value)}
+                    onChange={(event: ChangeEvent<HTMLTextAreaElement>): void => updateDraft(ingredient, 'note', event.target.value)}
                     onKeyDown={handleEditableKeyDown}
                     placeholder="Add a note"
+                    rows={2}
                     value={draft.note}
                   />
                   {savedField === 'note' ? <SavedTag ingredientName={draft.name.trim() || ingredient.name} /> : null}
                 </div>
                 {(ingredient.measurements ?? []).some((measurement): boolean => !measurement.isPrimary) ? (
-                  <p className="col-span-2 col-start-2 px-1.5 text-xs text-[var(--muted-foreground)]">
+                  <p className="col-span-2 col-start-2 text-xs text-[var(--muted-foreground)]">
                     Also {(ingredient.measurements ?? [])
                       .filter((measurement): boolean => !measurement.isPrimary)
                       .map((measurement): string => formatMeasurement(measurement, scaleFactor))

@@ -28,7 +28,7 @@ export function IngredientLinkRepair({ recipe }: IIngredientLinkRepairProps): Re
   }
 
   return (
-    <div className="mb-4 flex flex-col gap-3 rounded-xl border border-dashed border-[var(--primary)]/40 bg-[var(--primary-soft)]/40 p-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-3 rounded-xl border border-dashed border-[var(--primary)]/40 bg-[var(--primary-soft)]/40 p-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-start gap-3">
         <span className="mt-0.5 rounded-lg bg-[var(--card)] p-2 text-[var(--primary)]">
           <Link2 size={16} />
